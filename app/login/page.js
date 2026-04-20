@@ -11,6 +11,21 @@ export default function LoginPage() {
   const [mode, setMode] = useState('login') // 'login' | 'register'
   const router = useRouter()
   const supabase = createClient()
+  const [mostrarPassword, setMostrarPassword] = useState(false)
+
+
+  async function handleResetPassword() {
+    // Supabase enviará un correo con un link mágico
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/actualizar-password`,
+    })
+    
+    if (error) alert("Error: " + error.message)
+    else alert("Te enviamos un enlace para recuperar tu contraseña a tu correo.")
+  }
+  
+
+
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -108,7 +123,23 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
+        // 2. Modifica tu input de contraseña para que se vea así:
+        <div className="relative">
+          <input
+            type={mostrarPassword ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Tu contraseña"
+            className="w-full px-3 py-2 border rounded-xl"
+          />
+          <button
+            type="button"
+            onClick={() => setMostrarPassword(!mostrarPassword)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"
+          >
+            {mostrarPassword ? "Ocultar" : "Mostrar"}
+          </button>
+        </div>
         <p className="text-center text-xs text-[#aaa] mt-6">
           Los archivos de cada usuario son privados
         </p>
