@@ -67,23 +67,36 @@ export default function DashboardClient({ user, isAdmin }) {
   }
 
   async function uploadFiles(fileList) {
+    if (!fileList || fileList.length === 0) return
+
+    // Convertir a arreglo inmediatamente para no perder referencias
+    const filesArray = Array.from(fileList)
+
+    // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
+    if (fileRef.current) fileRef.current.value = ''
+
     setUploading(true)
     setUploadError('')
-    for (const file of Array.from(fileList)) {
-      // Sanitizar nombre: quitar caracteres especiales
-      const safeName = file.name.replace(/[^a-zA-Z0-9._\-() ]/g, '_')
-      const path = `${user.id}/${Date.now()}_${safeName}`
-      const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-        cacheControl: '3600',
-        upsert: false,
-      })
-      if (error) {
-        setUploadError(`Error al subir "${file.name}": ${error.message}`)
-        setUploading(false)
-        return
+
+    try {
+      for (const file of filesArray) {
+        // Sanitizar nombre: quitar caracteres especiales
+        const safeName = file.name.replace(/[^a-zA-Z0-9._\-() ]/g, '_')
+        const path = `${user.id}/${Date.now()}_${safeName}`
+        const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+        })
+        if (error) {
+          setUploadError(`Error al subir "${file.name}": ${error.message}`)
+          setUploading(false)
+          return
+        }
       }
+      await loadFiles()
+    } catch (err) {
+      setUploadError(`Ocurrió un error inesperado: ${err.message}`)
     }
-    await loadFiles()
     setUploading(false)
   }
 
