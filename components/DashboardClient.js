@@ -34,6 +34,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const [dragOver, setDragOver] = useState(false)
   const [search, setSearch] = useState('')
   const [uploadError, setUploadError] = useState('')
+  const [listError, setListError] = useState('')
   const fileRef = useRef()
   const router = useRouter()
   const supabase = createClient()
@@ -42,11 +43,21 @@ export default function DashboardClient({ user, isAdmin }) {
 
   async function loadFiles() {
     setLoading(true)
+    setListError('')
+    console.log('🔍 Buscando archivos en la carpeta:', user.id)
+
     // Archivos del usuario actual
     const { data, error } = await supabase.storage
       .from(BUCKET)
       .list(user.id, { sortBy: { column: 'created_at', order: 'desc' } })
-    setFiles(data || [])
+      
+    console.log('📡 Resultado de Supabase:', data, error)
+
+    if (error) {
+      setListError(error.message)
+    }
+    
+    setFiles(Array.isArray(data) ? data : [])
 
     // Si es admin, cargar todos los archivos y usuarios
     if (isAdmin) {
@@ -56,10 +67,15 @@ export default function DashboardClient({ user, isAdmin }) {
       // Listar archivos de cada usuario
       const allF = []
       for (const u of users || []) {
-        const { data: uf } = await supabase.storage
+        const { data: uf, error: ufError } = await supabase.storage
           .from(BUCKET)
           .list(u.id)
-        if (uf) allF.push(...uf.map(f => ({ ...f, ownerEmail: u.email, ownerId: u.id })))
+          
+        if (ufError) {
+          console.error(`Error al listar archivos de ${u.email}:`, ufError.message)
+        } else if (Array.isArray(uf)) {
+          allF.push(...uf.map(f => ({ ...f, ownerEmail: u.email, ownerId: u.id })))
+        }
       }
       setAllFiles(allF)
     }
@@ -252,6 +268,13 @@ export default function DashboardClient({ user, isAdmin }) {
             {uploadError && (
               <div className="text-xs px-3 py-2.5 rounded-xl bg-red-50 text-red-600 border border-red-100 mb-4">
                 ✗ {uploadError}
+              </div>
+            )}
+
+            {/* Error de listado de archivos */}
+            {listError && (
+              <div className="text-xs px-3 py-2.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 mb-4">
+                ⚠️ <strong>Error al cargar archivos:</strong> {listError}
               </div>
             )}
 
