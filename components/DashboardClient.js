@@ -33,6 +33,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const [tab, setTab] = useState('mis-archivos') // 'mis-archivos' | 'todos' | 'usuarios'
   const [dragOver, setDragOver] = useState(false)
   const [search, setSearch] = useState('')
+  const [uploadError, setUploadError] = useState('')
   const fileRef = useRef()
   const router = useRouter()
   const supabase = createClient()
@@ -67,9 +68,20 @@ export default function DashboardClient({ user, isAdmin }) {
 
   async function uploadFiles(fileList) {
     setUploading(true)
+    setUploadError('')
     for (const file of Array.from(fileList)) {
-      const path = `${user.id}/${Date.now()}_${file.name}`
-      await supabase.storage.from(BUCKET).upload(path, file)
+      // Sanitizar nombre: quitar caracteres especiales
+      const safeName = file.name.replace(/[^a-zA-Z0-9._\-() ]/g, '_')
+      const path = `${user.id}/${Date.now()}_${safeName}`
+      const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+        cacheControl: '3600',
+        upsert: false,
+      })
+      if (error) {
+        setUploadError(`Error al subir "${file.name}": ${error.message}`)
+        setUploading(false)
+        return
+      }
     }
     await loadFiles()
     setUploading(false)
@@ -164,6 +176,13 @@ export default function DashboardClient({ user, isAdmin }) {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 Usuarios
               </button>
+              <a
+                href="/dashboard/invitaciones"
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5 19.79 19.79 0 0 1 1.62 4.9 2 2 0 0 1 3.6 2.71h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10.1a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 17.5z"/></svg>
+                Invitaciones
+              </a>
             </>
           )}
         </nav>
@@ -215,6 +234,13 @@ export default function DashboardClient({ user, isAdmin }) {
               </button>
               <input ref={fileRef} type="file" multiple className="hidden" onChange={e => uploadFiles(e.target.files)} />
             </div>
+
+            {/* Error de upload */}
+            {uploadError && (
+              <div className="text-xs px-3 py-2.5 rounded-xl bg-red-50 text-red-600 border border-red-100 mb-4">
+                ✗ {uploadError}
+              </div>
+            )}
 
             {/* Búsqueda */}
             {files.length > 0 && (
