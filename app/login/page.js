@@ -127,7 +127,7 @@ export default function LoginPage() {
               <polyline points="14 2 14 8 20 8"/>
             </svg>
           </div>
-          <h1 className="text-2xl font-medium tracking-tight text-[#1a1a1a]">FileShare</h1>
+          <h1 className="text-2xl font-medium tracking-tight text-[#1a1a1a]">Núcleo</h1>
           <p className="text-sm text-[#888] mt-1">Tu espacio de archivos privado</p>
         </div>
 
