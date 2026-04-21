@@ -441,12 +441,7 @@ export default function DashboardClient({ user, isAdmin }) {
         {/* Logo */}
         <div className="p-5 border-b border-[#e8e6e0]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-            </div>
+            <img src="/logo.png" alt="Logotipo" className="w-8 h-8 object-contain" />
             <span className="font-semibold text-[15px] text-[#1a1a1a]">Núcleo</span>
           </div>
         </div>
@@ -1120,12 +1115,7 @@ export default function DashboardClient({ user, isAdmin }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 text-center">
-              <div className="w-16 h-16 bg-[#1a1a1a] rounded-2xl mx-auto flex items-center justify-center mb-4">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                </svg>
-              </div>
+              <img src="/logo.png" alt="Logotipo" className="w-20 h-20 object-contain mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-[#1a1a1a]">Núcleo</h2>
               <p className="text-xs text-[#888] mt-1 mb-6">Sistema de Sincronización en la Nube</p>
               
