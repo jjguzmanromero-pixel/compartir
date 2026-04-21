@@ -13,7 +13,7 @@ export async function POST(req) {
     
     if (authHeader) {
       supabaseQuery = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader } }
+        global: { headers: { Authorization: authHeader, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } }
       });
       const { data } = await supabaseQuery.auth.getUser();
       user = data?.user;
