@@ -58,7 +58,7 @@ export default function InvitacionesClient({ user, invitations: initialInvitatio
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
             </div>
-            <span className="font-semibold text-[15px] text-[#1a1a1a]">FileShare</span>
+            <span className="font-semibold text-[15px] text-[#1a1a1a]">Núcleo</span>
           </div>
         </div>
 

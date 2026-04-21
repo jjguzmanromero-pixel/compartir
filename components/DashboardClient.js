@@ -56,6 +56,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const [search, setSearch] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [expandedUser, setExpandedUser] = useState(null)
+  const [showAboutModal, setShowAboutModal] = useState(false)
   const [listError, setListError] = useState('')
   const fileRef = useRef()
   const router = useRouter()
@@ -342,7 +343,7 @@ export default function DashboardClient({ user, isAdmin }) {
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
             </div>
-            <span className="font-semibold text-[15px] text-[#1a1a1a]">FileShare</span>
+            <span className="font-semibold text-[15px] text-[#1a1a1a]">Núcleo</span>
           </div>
         </div>
 
@@ -455,6 +456,14 @@ export default function DashboardClient({ user, isAdmin }) {
             </div>
           </button>
         </nav>
+
+        {/* Acerca de */}
+        <div className="mt-auto p-3">
+          <button onClick={() => setShowAboutModal(true)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#888] hover:bg-[#f7f6f3] hover:text-[#1a1a1a] transition-all">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            Acerca de Núcleo
+          </button>
+        </div>
 
         {/* User info */}
         <div className="p-3 border-t border-[#e8e6e0]">
@@ -947,6 +956,56 @@ export default function DashboardClient({ user, isAdmin }) {
           </div>
         )}
       </div>
+
+      {/* MODAL ACERCA DE */}
+      {showAboutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-[#1a1a1a] rounded-2xl mx-auto flex items-center justify-center mb-4">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-[#1a1a1a]">Núcleo</h2>
+              <p className="text-xs text-[#888] mt-1 mb-6">Sistema de Sincronización en la Nube</p>
+              
+              <div className="bg-[#f7f6f3] rounded-xl p-4 text-left space-y-3">
+                <div>
+                  <p className="text-[10px] text-[#888] uppercase tracking-wider font-semibold">Desarrollo y Arquitectura</p>
+                  <p className="text-sm font-medium text-[#1a1a1a]">ISC José de Jesús Guzmán Romero</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-[#888] uppercase tracking-wider font-semibold">Organización</p>
+                  <p className="text-sm font-medium text-[#1a1a1a]">Sistemas Magnuz</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-[#888] uppercase tracking-wider font-semibold">Contacto</p>
+                  <a href="mailto:cybermagnuz@hotmail.com" className="text-sm font-medium text-blue-600 hover:underline">cybermagnuz@hotmail.com</a>
+                  <a href="https://wa.me/528337334572" target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-blue-600 hover:underline">(+52) 833 733 4572</a>
+                </div>
+                <div>
+                  <p className="text-[10px] text-[#888] uppercase tracking-wider font-semibold">Versión del Sistema</p>
+                  <p className="text-sm font-medium text-[#1a1a1a]">1.0.0 (Enterprise)</p>
+                </div>
+              </div>
+
+              <div className="mt-6 border-t border-[#e8e6e0] pt-4">
+                <p className="text-xs text-[#555]">
+                  Desarrollo de soluciones de software y aplicaciones web a la medida, adaptadas a los requerimientos específicos de cada cliente.
+                </p>
+              </div>
+            </div>
+            <div className="p-4 border-t border-[#e8e6e0] bg-[#f7f6f3] flex justify-center">
+              <button onClick={() => setShowAboutModal(false)} className="w-full py-2.5 bg-[#1a1a1a] text-white text-sm font-medium rounded-xl hover:bg-[#333] transition-colors">
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
