@@ -215,6 +215,21 @@ export default function DashboardClient({ user, isAdmin }) {
     await loadFiles()
   }
 
+  async function emptyTrash() {
+    const validFiles = trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder')
+    if (validFiles.length === 0) return
+    if (!confirm("¿Estás seguro de que quieres vaciar la papelera? Esta acción eliminará los archivos permanentemente y no se puede deshacer.")) return
+    
+    setLoading(true)
+    const paths = trashFiles.map(f => `${user.id}/.papelera/${f.name}`)
+    
+    for (let i = 0; i < paths.length; i += 100) {
+      const chunk = paths.slice(i, i + 100)
+      await supabase.storage.from(BUCKET).remove(chunk)
+    }
+    await loadFiles()
+  }
+
   async function shareFile(fileName, ownerId) {
     const path = getFilePath(fileName, ownerId)
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 48) // Cadupe en 48 horas
@@ -592,9 +607,21 @@ export default function DashboardClient({ user, isAdmin }) {
         {/* PAPELERA */}
         {tab === 'papelera' && (
           <div>
-            <div className="mb-6">
-              <h1 className="text-xl font-semibold text-[#1a1a1a]">Papelera de reciclaje</h1>
-              <p className="text-sm text-[#888] mt-0.5">Tus archivos eliminados recientemente</p>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-xl font-semibold text-[#1a1a1a]">Papelera de reciclaje</h1>
+                <p className="text-sm text-[#888] mt-0.5">Tus archivos eliminados recientemente</p>
+              </div>
+              {trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder').length > 0 && (
+                <button
+                  onClick={emptyTrash}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-xl text-sm font-medium hover:bg-red-100 active:scale-[0.98] transition-all disabled:opacity-50"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                  Vaciar papelera
+                </button>
+              )}
             </div>
             {trashFiles.length === 0 ? (
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
