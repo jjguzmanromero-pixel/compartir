@@ -90,39 +90,22 @@ export default function DashboardClient({ user, isAdmin }) {
     const folderToFetch = currentPath ? `${user.id}/${currentPath}` : user.id
     console.log('🔍 Buscando archivos en la ruta:', folderToFetch)
 
-    // Paginación Frontal: Archivos del usuario actual
-    let allUserFiles = [];
-    let offsetUser = 0;
-    let hasMoreUser = true;
-    while (hasMoreUser) {
-      const { data, error } = await supabase.storage
-        .from(BUCKET)
-        .list(folderToFetch, { limit: 1000, offset: offsetUser, sortBy: { column: 'created_at', order: 'desc' } });
-        
-      if (error) { setListError(error.message); break; }
-      if (!data || data.length === 0) break;
-      
-      allUserFiles.push(...data);
-      if (data.length < 1000) hasMoreUser = false;
-      else offsetUser += 1000;
+    try {
+      // Llamada segura a la API de R2 para los archivos del usuario
+      const resUser = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: folderToFetch }) });
+      const jsonUser = await resUser.json();
+      if (!resUser.ok) throw new Error(jsonUser.error);
+      setFiles(jsonUser.data || []);
+    } catch (e) {
+      setListError(e.message);
     }
-    setFiles(allUserFiles)
 
-    // Paginación Frontal: Archivos de la Papelera
-    let allTrashFiles = [];
-    let offsetTrash = 0;
-    let hasMoreTrash = true;
-    while (hasMoreTrash) {
-      const { data: tData } = await supabase.storage
-        .from(BUCKET)
-        .list(`${user.id}/.papelera`, { limit: 1000, offset: offsetTrash, sortBy: { column: 'created_at', order: 'desc' } });
-        
-      if (!tData || tData.length === 0) break;
-      allTrashFiles.push(...tData);
-      if (tData.length < 1000) hasMoreTrash = false;
-      else offsetTrash += 1000;
-    }
-    setTrashFiles(allTrashFiles)
+    try {
+      // Llamada segura a la API de R2 para la papelera
+      const resTrash = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: `${user.id}/.papelera` }) });
+      const jsonTrash = await resTrash.json();
+      if (resTrash.ok) setTrashFiles(jsonTrash.data || []);
+    } catch (e) { console.error('Error al cargar papelera', e); }
 
     // Si es admin, cargar todos los archivos y usuarios
     if (isAdmin) {
@@ -132,24 +115,18 @@ export default function DashboardClient({ user, isAdmin }) {
       const { data: devs } = await supabase.from('user_devices').select('*').order('created_at', { ascending: false })
       setDevices(devs || [])
 
-      // OPTIMIZACIÓN: Usar la nueva vista para obtener todos los archivos en una sola consulta
-      const { data: viewData, error: viewError } = await supabase
-        .from('all_files_with_owner')
-        .select('*');
-
-      if (viewError) {
-        console.error("Error al cargar la vista de admin:", viewError.message);
-        setListError(prev => (prev ? prev + ' | ' : '') + 'Error al cargar archivos de admin: ' + viewError.message);
-        setAllFiles([]);
-      } else {
-        // Transformar los datos de la vista para que coincidan con la estructura que el componente espera
-        const transformedFiles = viewData.map(f => {
-          const pathParts = f.name.split('/');
-          pathParts.shift(); // Quitar el user_id del principio del path
-          const shortName = pathParts.join('/');
-          return { ...f, name: shortName }; // Reemplazar el 'name' largo por el corto
+      // Nueva lógica Admin R2: Listar archivos recorriendo las carpetas de usuarios
+      if (users) {
+        const fetchPromises = users.map(async (u) => {
+          const r = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: u.id }) });
+          const json = await r.json();
+          if (json.data) {
+            return json.data.map(f => ({ ...f, ownerId: u.id, ownerEmail: u.email }));
+          }
+          return [];
         });
-        setAllFiles(transformedFiles);
+        const results = await Promise.all(fetchPromises);
+        setAllFiles(results.flat());
       }
     }
     setLoading(false)
@@ -175,7 +152,14 @@ export default function DashboardClient({ user, isAdmin }) {
     const folderPath = currentPath ? `${user.id}/${currentPath}/${safeName}` : `${user.id}/${safeName}`
     
     setUploading(true)
-    await supabase.storage.from(BUCKET).upload(`${folderPath}/.emptyFolderPlaceholder`, new Blob(['']))
+    try {
+      const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path: `${folderPath}/.emptyFolderPlaceholder`, contentType: 'application/octet-stream' }) });
+      const { signedUrl } = await presignRes.json();
+      if (signedUrl) {
+        await fetch(signedUrl, { method: 'PUT', body: new Blob(['']) });
+      }
+    } catch (e) { alert("Error al crear carpeta: " + e.message); }
+    
     await loadFiles()
     setUploading(false)
   }
@@ -203,15 +187,20 @@ export default function DashboardClient({ user, isAdmin }) {
         const safeName = encodeSafe(file.name)
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
         const path = `${folderPath}/${safeName}`
-        const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-          cacheControl: '3600',
-          upsert: true, // Permitir sobrescribir el archivo si se edita
-        })
+        
+        // 1. Pedir URL Pre-firmada a nuestro backend de Next.js
+        const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: file.type || 'application/octet-stream' }) });
+        const { signedUrl, error } = await presignRes.json();
         if (error) {
           setUploadError(`Error al subir "${file.name}": ${error.message}`)
           setUploading(false)
           return
         }
+        
+        // 2. Subir el archivo directamente a Cloudflare R2
+        const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
+        if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
+        
       }
       await loadFiles()
     } catch (err) {
@@ -232,24 +221,13 @@ export default function DashboardClient({ user, isAdmin }) {
       const trashPath = `${basePath}/.papelera/${trashName}`
       
       // Optimización: Soft Delete (Mover a Papelera)
-      let { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
+      const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'move', path, targetPath: trashPath }) });
+      const data = await res.json();
       
-      // Si el movimiento falla, puede ser porque la carpeta .papelera no existe.
-      // La creamos subiendo un placeholder y reintentamos.
-      if (error && error.message.includes('does not exist')) {
-        console.warn("Move failed, creating .papelera folder and retrying...");
-        // Crear placeholder para forzar la creación de la carpeta
-        await supabase.storage.from(BUCKET).upload(`${basePath}/.papelera/.emptyFolderPlaceholder`, new Blob(['']));
-        
-        // Reintentar el movimiento
-        const { error: retryError } = await supabase.storage.from(BUCKET).move(path, trashPath);
-        error = retryError;
-      }
-  
-      // Si después de reintentar sigue fallando, hacemos un borrado definitivo como fallback.
-      if (error) {
-        console.error("Error al mover a papelera:", error);
-        await supabase.storage.from(BUCKET).remove([path])
+      if (data.error) {
+        console.error("Error al mover a papelera:", data.error);
+        // Fallback a borrado definitivo
+        await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [path] }) });
       }
   
       await loadFiles()
@@ -268,7 +246,7 @@ export default function DashboardClient({ user, isAdmin }) {
     try {
       const basePath = `${ownerId || user.id}`
       const originalRelativePath = fileName.replace(/___/g, '/') // Decodificar ruta original
-      await supabase.storage.from(BUCKET).move(`${basePath}/.papelera/${fileName}`, `${basePath}/${originalRelativePath}`)
+      await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'move', path: `${basePath}/.papelera/${fileName}`, targetPath: `${basePath}/${originalRelativePath}` }) });
       await loadFiles()
     } finally {
       setProcessingFiles(prev => { const next = new Set(prev); next.delete(fileKey); return next; });
@@ -279,7 +257,7 @@ export default function DashboardClient({ user, isAdmin }) {
     const fileKey = `${ownerId || user.id}/${fileName}`;
     setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
     try {
-      await supabase.storage.from(BUCKET).remove([`${ownerId || user.id}/.papelera/${fileName}`])
+      await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [`${ownerId || user.id}/.papelera/${fileName}`] }) });
       await loadFiles()
     } finally {
       setProcessingFiles(prev => { const next = new Set(prev); next.delete(fileKey); return next; });
@@ -294,21 +272,19 @@ export default function DashboardClient({ user, isAdmin }) {
     setLoading(true)
     const paths = trashFiles.map(f => `${user.id}/.papelera/${f.name}`)
     
-    for (let i = 0; i < paths.length; i += 100) {
-      const chunk = paths.slice(i, i + 100)
-      await supabase.storage.from(BUCKET).remove(chunk)
-    }
+    await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths }) });
     await loadFiles()
   }
 
   async function shareFile(fileName, ownerId) {
     const path = getFilePath(fileName, ownerId)
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 48) // Cadupe en 48 horas
-    if (error) return alert("Error al generar enlace: " + error.message)
+    const res = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'download', path }) });
+    const data = await res.json();
+    if (data.error) return alert("Error al generar enlace: " + data.error)
     
     try {
       await navigator.clipboard.writeText(data.signedUrl)
-      alert("✅ Enlace público copiado al portapapeles.\nCualquier persona con el enlace podrá descargarlo por 48 horas.")
+      alert("✅ Enlace público copiado al portapapeles.\nCualquier persona con el enlace podrá descargarlo temporalmente.")
     } catch (e) {
       prompt("Copia este enlace público (Cadupe en 48h):", data.signedUrl)
     }
@@ -316,14 +292,20 @@ export default function DashboardClient({ user, isAdmin }) {
 
   async function downloadFile(fileName, ownerId) {
     const path = getFilePath(fileName, ownerId)
-    const { data } = await supabase.storage.from(BUCKET).download(path)
-    if (!data) return
-    const url = URL.createObjectURL(data)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = decodeSafe(fileName.replace(/^\d+_/, '')) // decodificar el nombre original
-    a.click()
-    URL.revokeObjectURL(url)
+    try {
+      const res = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'download', path }) });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      const blobRes = await fetch(data.signedUrl);
+      const blob = await blobRes.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = decodeSafe(fileName.replace(/^\d+_/, ''));
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error('Error descargando archivo:', e); }
   }
 
   async function toggleUserSuspension(userId, currentStatus) {
