@@ -28,12 +28,14 @@ export default function DashboardClient({ user, isAdmin }) {
   const [files, setFiles] = useState([])
   const [allFiles, setAllFiles] = useState([]) // solo admin
   const [allUsers, setAllUsers] = useState([]) // solo admin
+  const [devices, setDevices] = useState([]) // solo admin
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('mis-archivos') // 'mis-archivos' | 'todos' | 'usuarios'
   const [dragOver, setDragOver] = useState(false)
   const [search, setSearch] = useState('')
   const [uploadError, setUploadError] = useState('')
+  const [expandedUser, setExpandedUser] = useState(null)
   const [listError, setListError] = useState('')
   const fileRef = useRef()
   const router = useRouter()
@@ -63,6 +65,9 @@ export default function DashboardClient({ user, isAdmin }) {
     if (isAdmin) {
       const { data: users } = await supabase.from('profiles').select('*')
       setAllUsers(users || [])
+
+      const { data: devs } = await supabase.from('user_devices').select('*').order('created_at', { ascending: false })
+      setDevices(devs || [])
 
       // Listar archivos de cada usuario
       const allF = []
@@ -147,6 +152,19 @@ export default function DashboardClient({ user, isAdmin }) {
     }
   }
 
+  async function updateDeviceStatus(deviceId, newStatus) {
+    const { error } = await supabase
+      .from('user_devices')
+      .update({ status: newStatus })
+      .eq('id', deviceId)
+
+    if (!error) {
+      setDevices(devices.map(d => d.id === deviceId ? { ...d, status: newStatus } : d))
+    } else {
+      alert("Error al actualizar equipo: " + error.message)
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut()
     router.push('/login')
@@ -217,6 +235,24 @@ export default function DashboardClient({ user, isAdmin }) {
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 Usuarios
+              </button>
+              <button
+                onClick={() => setTab('autorizaciones')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm mb-1 transition-all ${
+                  tab === 'autorizaciones'
+                    ? 'bg-[#1a1a1a] text-white font-medium'
+                    : 'text-[#555] hover:bg-[#f7f6f3]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Autorizaciones
+                </div>
+                {devices.filter(d => d.status === 'pending').length > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {devices.filter(d => d.status === 'pending').length}
+                  </span>
+                )}
               </button>
               <a
                 href="/dashboard/invitaciones"
@@ -438,34 +474,71 @@ export default function DashboardClient({ user, isAdmin }) {
                 const uFiles = allFiles.filter(f => f.ownerId === u.id && f.name !== '.emptyFolderPlaceholder')
                 const ini = u.email?.slice(0, 2).toUpperCase()
                 return (
-                  <div key={u.id} className="flex items-center gap-4 bg-white rounded-xl px-5 py-4 border border-[#e8e6e0]">
-                    <div className="w-9 h-9 rounded-full bg-[#e8e6e0] flex items-center justify-center text-sm font-medium text-[#555]">
-                      {ini}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-[#1a1a1a]">{u.email}</p>
-                      <p className="text-xs text-[#aaa]">
-                        {u.role || 'usuario'} {u.is_suspended && <span className="text-red-500 font-medium ml-1">• Suspendido</span>}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-[#1a1a1a]">{uFiles.length}</p>
-                        <p className="text-xs text-[#aaa]">archivo{uFiles.length !== 1 ? 's' : ''}</p>
+                  <div key={u.id} className="bg-white rounded-xl border border-[#e8e6e0] overflow-hidden">
+                    <div className="flex items-center gap-4 px-5 py-4">
+                      <div className="w-9 h-9 rounded-full bg-[#e8e6e0] flex items-center justify-center text-sm font-medium text-[#555]">
+                        {ini}
                       </div>
-                      {u.id !== user.id && (
-                        <button
-                          onClick={() => toggleUserSuspension(u.id, u.is_suspended)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                            u.is_suspended
-                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
-                              : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-100'
-                          }`}
-                        >
-                          {u.is_suspended ? 'Reactivar' : 'Suspender'}
-                        </button>
-                      )}
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-[#1a1a1a]">{u.email}</p>
+                        <p className="text-xs text-[#aaa]">
+                          {u.role || 'usuario'} {u.is_suspended && <span className="text-red-500 font-medium ml-1">• Suspendido</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-[#1a1a1a]">{uFiles.length}</p>
+                          <p className="text-xs text-[#aaa]">archivo{uFiles.length !== 1 ? 's' : ''}</p>
+                        </div>
+                        
+                        {uFiles.length > 0 && (
+                          <button
+                            onClick={() => setExpandedUser(expandedUser === u.id ? null : u.id)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#f7f6f3] text-[#555] hover:bg-[#e8e6e0] transition-colors"
+                          >
+                            {expandedUser === u.id ? 'Ocultar' : 'Ver archivos'}
+                          </button>
+                        )}
+
+                        {u.id !== user.id && (
+                          <button
+                            onClick={() => toggleUserSuspension(u.id, u.is_suspended)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                              u.is_suspended
+                                ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-100'
+                            }`}
+                          >
+                            {u.is_suspended ? 'Reactivar' : 'Suspender'}
+                          </button>
+                        )}
+                      </div>
                     </div>
+                    
+                    {/* Lista expandible de archivos del usuario */}
+                    {expandedUser === u.id && uFiles.length > 0 && (
+                      <div className="bg-[#fafaf8] border-t border-[#e8e6e0] p-4 space-y-1.5">
+                        {uFiles.map(file => (
+                          <div key={file.name} className="flex items-center gap-3 bg-white rounded-lg px-3 py-2 border border-[#e8e6e0] group hover:border-[#ccc] transition-all">
+                            <span className="text-lg">{getIcon(file.name)}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-[#1a1a1a] truncate">
+                                {file.name.replace(/^\d+_/, '')}
+                              </p>
+                              <p className="text-[10px] text-[#aaa]">{formatBytes(file.metadata?.size)}</p>
+                            </div>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => downloadFile(file.name, u.id)} className="p-1 rounded-md hover:bg-[#f7f6f3] text-[#888] transition-colors" title="Descargar">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                              </button>
+                              <button onClick={() => deleteFile(file.name, u.id)} className="p-1 rounded-md hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })}
