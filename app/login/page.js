@@ -44,6 +44,54 @@ export default function LoginPage() {
 
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { setError(error.message); setLoading(false); return }
+
+    // --- NUEVO: LÓGICA DE EQUIPOS DE CONFIANZA ---
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Generar o recuperar ID único del dispositivo en este navegador
+    let deviceId = localStorage.getItem('fs_device_id')
+    if (!deviceId) {
+      deviceId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2)
+      localStorage.setItem('fs_device_id', deviceId)
+    }
+    
+    // Intentar deducir qué equipo es para que el Admin lo reconozca
+    const ua = navigator.userAgent
+    const deviceName = ua.includes('Windows') ? 'Windows PC' : ua.includes('Mac') ? 'Mac' : ua.includes('Android') ? 'Móvil Android' : ua.includes('iPhone') ? 'iPhone' : 'Navegador Web'
+    
+    const { data: devices } = await supabase.from('user_devices').select('*').eq('user_id', user.id)
+    const currentDevice = devices?.find(d => d.device_id === deviceId)
+    
+    if (currentDevice) {
+      // Si el equipo ya está registrado pero no está aprobado, lo desconectamos
+      if (currentDevice.status === 'pending') {
+        await supabase.auth.signOut()
+        setError('Tu equipo está esperando aprobación del administrador.')
+        setLoading(false)
+        return
+      }
+      if (currentDevice.status === 'blocked') {
+        await supabase.auth.signOut()
+        setError('Este equipo ha sido bloqueado por seguridad.')
+        setLoading(false)
+        return
+      }
+    } else {
+      // Es un equipo nuevo. Si es su primer equipo en la vida, lo auto-aprobamos.
+      const isFirstDevice = !devices || devices.length === 0
+      const newStatus = isFirstDevice ? 'approved' : 'pending'
+      
+      await supabase.from('user_devices').insert({ user_id: user.id, device_id: deviceId, device_name: deviceName, status: newStatus })
+      
+      if (!isFirstDevice) {
+        await supabase.auth.signOut()
+        setError('Nuevo equipo detectado. Un administrador debe aprobarlo para que puedas entrar.')
+        setLoading(false)
+        return
+      }
+    }
+    // ---------------------------------------------
+
     router.push('/dashboard')
     router.refresh()
   }
