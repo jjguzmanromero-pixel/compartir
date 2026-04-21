@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '../../../lib/supabase-server';
-import { r2, BUCKET_NAME } from '../../../lib/r2';
+import { createClient } from '../../../../lib/supabase-server';
+import { r2, BUCKET_NAME } from '../../../../lib/r2';
 import { ListObjectsV2Command, DeleteObjectsCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 export async function POST(req) {
