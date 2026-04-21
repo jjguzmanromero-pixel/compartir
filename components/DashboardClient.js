@@ -28,6 +28,8 @@ export default function DashboardClient({ user, isAdmin }) {
   const [files, setFiles] = useState([])
   const [allFiles, setAllFiles] = useState([]) // solo admin
   const [allUsers, setAllUsers] = useState([]) // solo admin
+  const [trashFiles, setTrashFiles] = useState([])
+  const [limit, setLimit] = useState(50) // Paginación para no saturar memoria
   const [devices, setDevices] = useState([]) // solo admin
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -41,7 +43,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const router = useRouter()
   const supabase = createClient()
 
-  useEffect(() => { loadFiles() }, [])
+  useEffect(() => { loadFiles() }, [limit]) // Recargar si piden más archivos
 
   async function loadFiles() {
     setLoading(true)
@@ -51,7 +53,7 @@ export default function DashboardClient({ user, isAdmin }) {
     // Archivos del usuario actual
     const { data, error } = await supabase.storage
       .from(BUCKET)
-      .list(user.id, { sortBy: { column: 'created_at', order: 'desc' } })
+      .list(user.id, { limit, sortBy: { column: 'created_at', order: 'desc' } })
       
     console.log('📡 Resultado de Supabase:', data, error)
 
@@ -60,6 +62,10 @@ export default function DashboardClient({ user, isAdmin }) {
     }
     
     setFiles(Array.isArray(data) ? data : [])
+
+    // Archivos de la Papelera
+    const { data: tData } = await supabase.storage.from(BUCKET).list(`${user.id}/.papelera`, { limit, sortBy: { column: 'created_at', order: 'desc' } })
+    setTrashFiles(Array.isArray(tData) ? tData : [])
 
     // Si es admin, cargar todos los archivos y usuarios
     if (isAdmin) {
@@ -74,7 +80,7 @@ export default function DashboardClient({ user, isAdmin }) {
       for (const u of users || []) {
         const { data: uf, error: ufError } = await supabase.storage
           .from(BUCKET)
-          .list(u.id)
+          .list(u.id, { limit })
           
         if (ufError) {
           console.error(`Error al listar archivos de ${u.email}:`, ufError.message)
@@ -132,6 +138,30 @@ export default function DashboardClient({ user, isAdmin }) {
       await supabase.storage.from(BUCKET).remove([path]) // Fallback si falla
     }
     await loadFiles()
+  }
+
+  async function restoreFile(fileName, ownerId) {
+    const basePath = `${ownerId || user.id}`
+    await supabase.storage.from(BUCKET).move(`${basePath}/.papelera/${fileName}`, `${basePath}/${fileName}`)
+    await loadFiles()
+  }
+
+  async function hardDeleteFile(fileName, ownerId) {
+    await supabase.storage.from(BUCKET).remove([`${ownerId || user.id}/.papelera/${fileName}`])
+    await loadFiles()
+  }
+
+  async function shareFile(fileName, ownerId) {
+    const path = `${ownerId || user.id}/${fileName}`
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 48) // Cadupe en 48 horas
+    if (error) return alert("Error al generar enlace: " + error.message)
+    
+    try {
+      await navigator.clipboard.writeText(data.signedUrl)
+      alert("✅ Enlace público copiado al portapapeles.\nCualquier persona con el enlace podrá descargarlo por 48 horas.")
+    } catch (e) {
+      prompt("Copia este enlace público (Cadupe en 48h):", data.signedUrl)
+    }
   }
 
   async function downloadFile(fileName, ownerId) {
@@ -227,6 +257,18 @@ export default function DashboardClient({ user, isAdmin }) {
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             Mis archivos
+          </button>
+
+          <button
+            onClick={() => setTab('papelera')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 transition-all ${
+              tab === 'papelera'
+                ? 'bg-[#1a1a1a] text-white font-medium'
+                : 'text-[#555] hover:bg-[#f7f6f3]'
+            }`}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            Papelera
           </button>
 
           {isAdmin && (
@@ -428,6 +470,13 @@ export default function DashboardClient({ user, isAdmin }) {
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
+                        onClick={() => shareFile(file.name, null)}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors"
+                        title="Copiar enlace"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                      </button>
+                      <button
                         onClick={() => downloadFile(file.name, null)}
                         className="p-1.5 rounded-lg hover:bg-[#f7f6f3] text-[#888] transition-colors"
                         title="Descargar"
@@ -440,6 +489,50 @@ export default function DashboardClient({ user, isAdmin }) {
                         title="Eliminar"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Paginación - Cargar más */}
+            {files.length >= limit && (
+              <div className="mt-6 text-center">
+                <button onClick={() => setLimit(l => l + 50)} className="px-4 py-2 bg-white border border-[#e8e6e0] rounded-xl text-sm font-medium text-[#555] hover:bg-[#f7f6f3] transition-colors">
+                  Cargar más archivos
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PAPELERA */}
+        {tab === 'papelera' && (
+          <div>
+            <div className="mb-6">
+              <h1 className="text-xl font-semibold text-[#1a1a1a]">Papelera de reciclaje</h1>
+              <p className="text-sm text-[#888] mt-0.5">Tus archivos eliminados recientemente</p>
+            </div>
+            {trashFiles.length === 0 ? (
+              <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
+            ) : (
+              <div className="space-y-1.5">
+                {trashFiles.map(file => (
+                  <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
+                    <span className="text-xl">{getIcon(file.name)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#1a1a1a] truncate">
+                        {file.name.replace(/^\d+_/, '')}
+                      </p>
+                      <p className="text-xs text-[#aaa]">{formatBytes(file.metadata?.size)}</p>
+                    </div>
+                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => restoreFile(file.name, null)} className="px-3 py-1 bg-[#1a1a1a] text-white rounded-lg text-xs font-medium hover:bg-[#333] transition-colors">
+                        Restaurar
+                      </button>
+                      <button onClick={() => hardDeleteFile(file.name, null)} className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">
+                        Eliminar final
                       </button>
                     </div>
                   </div>
@@ -473,6 +566,9 @@ export default function DashboardClient({ user, isAdmin }) {
                       {file.ownerEmail?.split('@')[0]}
                     </span>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => shareFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                        </button>
                       <button onClick={() => downloadFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-[#f7f6f3] text-[#888] transition-colors">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                       </button>
