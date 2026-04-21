@@ -16,12 +16,13 @@ function getIcon(name) {
   const ext = name?.split('.').pop()?.toLowerCase()
   const icons = {
     pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
+    ppt: '📽️', pptx: '📽️',
     jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', webp: '🖼️',
     mp4: '🎬', mov: '🎬', avi: '🎬', mp3: '🎵', wav: '🎵',
     zip: '📦', rar: '📦', '7z': '📦', txt: '📃', csv: '📃',
     js: '💻', ts: '💻', py: '💻', html: '💻', css: '💻',
   }
-  return icons[ext] || '📁'
+  return icons[ext] || ''
 }
 
 export default function DashboardClient({ user, isAdmin }) {
@@ -128,12 +129,12 @@ export default function DashboardClient({ user, isAdmin }) {
     try {
       for (const file of filesArray) {
         // Sanitizar nombre: quitar caracteres especiales
-        const safeName = file.name.replace(/[^a-zA-Z0-9._\-() ]/g, '_')
+        const safeName = file.name.replace(/[^a-zA-Z0-9._\-() áéíóúÁÉÍÓÚñÑüÜ]/g, '_')
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
-        const path = `${folderPath}/${Date.now()}_${safeName}`
+        const path = `${folderPath}/${safeName}`
         const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
           cacheControl: '3600',
-          upsert: false,
+          upsert: true, // Permitir sobrescribir el archivo si se edita
         })
         if (error) {
           setUploadError(`Error al subir "${file.name}": ${error.message}`)
