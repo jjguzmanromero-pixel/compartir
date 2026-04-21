@@ -122,8 +122,15 @@ export default function DashboardClient({ user, isAdmin }) {
   }
 
   async function deleteFile(filePath, ownerId) {
-    const path = `${ownerId || user.id}/${filePath}`
-    await supabase.storage.from(BUCKET).remove([path])
+    const basePath = `${ownerId || user.id}`
+    const path = `${basePath}/${filePath}`
+    const trashPath = `${basePath}/.papelera/${filePath}`
+    
+    // Optimización: Soft Delete (Mover a Papelera)
+    const { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
+    if (error) {
+      await supabase.storage.from(BUCKET).remove([path]) // Fallback si falla
+    }
     await loadFiles()
   }
 
@@ -149,6 +156,19 @@ export default function DashboardClient({ user, isAdmin }) {
       setAllUsers(allUsers.map(u => u.id === userId ? { ...u, is_suspended: !currentStatus } : u))
     } else {
       alert("Error al actualizar usuario: " + error.message)
+    }
+  }
+
+  async function toggleLocalSync(userId, currentStatus) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ sync_local: !currentStatus })
+      .eq('id', userId)
+
+    if (!error) {
+      setAllUsers(allUsers.map(u => u.id === userId ? { ...u, sync_local: !currentStatus } : u))
+    } else {
+      alert("Error al actualizar sincronización: " + error.message)
     }
   }
 
@@ -392,7 +412,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-12 text-[#aaa] text-sm">Cargando...</div>
             ) : (
               <div className="space-y-1.5">
-                {filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder').map(file => (
+                {filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera').map(file => (
                   <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
                     <span className="text-xl">{getIcon(file.name)}</span>
                     <div className="flex-1 min-w-0">
@@ -435,7 +455,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-16 text-[#aaa] text-sm">No hay archivos aún</div>
             ) : (
               <div className="space-y-1.5">
-                {allFiles.filter(f => f.name !== '.emptyFolderPlaceholder').map(file => (
+                {allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera').map(file => (
                   <div key={`${file.ownerId}_${file.name}`} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
                     <span className="text-xl">{getIcon(file.name)}</span>
                     <div className="flex-1 min-w-0">
@@ -471,7 +491,7 @@ export default function DashboardClient({ user, isAdmin }) {
             </div>
             <div className="space-y-2">
               {allUsers.map(u => {
-                const uFiles = allFiles.filter(f => f.ownerId === u.id && f.name !== '.emptyFolderPlaceholder')
+                const uFiles = allFiles.filter(f => f.ownerId === u.id && f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')
                 const ini = u.email?.slice(0, 2).toUpperCase()
                 return (
                   <div key={u.id} className="bg-white rounded-xl border border-[#e8e6e0] overflow-hidden">
@@ -499,6 +519,16 @@ export default function DashboardClient({ user, isAdmin }) {
                             {expandedUser === u.id ? 'Ocultar' : 'Ver archivos'}
                           </button>
                         )}
+
+                        {/* Botón de Sincronización Selectiva */}
+                        <button
+                          onClick={() => toggleLocalSync(u.id, u.sync_local)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            u.sync_local ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200' : 'bg-[#f7f6f3] text-[#555] hover:bg-[#e8e6e0] border border-[#e8e6e0]'
+                          }`}
+                        >
+                          {u.sync_local ? '⭐ Sincronizando' : 'Sincronizar a PC'}
+                        </button>
 
                         {u.id !== user.id && (
                           <button
