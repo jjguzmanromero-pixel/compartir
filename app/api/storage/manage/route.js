@@ -1,68 +1,51 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '../../../../lib/supabase-server';
-import { r2, BUCKET_NAME } from '../../../../lib/r2';
-import { ListObjectsV2Command, DeleteObjectsCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { createClient } from '../../../lib/supabase-server';
+import { createClient } from '@supabase/supabase-js';
+import { r2, BUCKET_NAME } from '../../../lib/r2';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export async function POST(req) {
   try {
-    const supabase = await createServerSupabaseClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-
-    const { action, path, targetPath, paths } = await req.json();
-
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-    const isAdmin = profile?.role === 'admin';
-    const isAllowed = (p) => p.startsWith(`${session.user.id}/`) || isAdmin;
-
-    if (path && !isAllowed(path)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
-
-    if (action === 'list') {
-      const command = new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: path ? `${path}/` : '', Delimiter: '/' });
-      const response = await r2.send(command);
-      
-      // Mapear la respuesta de S3 al formato exacto que tu Frontend espera
-      const folders = (response.CommonPrefixes || []).map(p => ({
-        name: p.Prefix.replace(path ? `${path}/` : '', '').replace(/\/$/, ''),
-        metadata: null // metadata null indica que es una carpeta
-      }));
-      
-      const files = (response.Contents || []).filter(f => f.Key !== `${path}/`).map(f => ({
-        name: f.Key.split('/').pop(),
-        metadata: { size: f.Size, eTag: f.ETag },
-        created_at: f.LastModified,
-        updated_at: f.LastModified
-      }));
-
-      return NextResponse.json({ data: [...folders, ...files] });
-    }
-
-    if (action === 'delete') {
-      if (!paths || !paths.every(isAllowed)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
-      
-      const command = new DeleteObjectsCommand({
-        Bucket: BUCKET_NAME,
-        Delete: { Objects: paths.map(p => ({ Key: p })) }
+    let supabaseQuery;
+    let user;
+    const authHeader = req.headers.get('authorization');
+    
+    if (authHeader) {
+      supabaseQuery = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } }
       });
-      await r2.send(command);
-      return NextResponse.json({ success: true });
+      const { data } = await supabaseQuery.auth.getUser();
+      user = data?.user;
+    } else {
+      supabaseQuery = await createServerSupabaseClient();
+      const { data: { session } } = await supabaseQuery.auth.getSession();
+      user = session?.user;
+    }
+    if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+    const { path, action, contentType } = await req.json();
+    
+    // SEGURIDAD: Replicar el RLS de Supabase. Solo tú o un Admin pueden tocar esta carpeta.
+    const { data: profile } = await supabaseQuery.from('profiles').select('role').eq('id', user.id).single();
+    const isAdmin = profile?.role === 'admin';
+    
+    if (path && !path.startsWith(`${user.id}/`) && !isAdmin) {
+      return NextResponse.json({ error: 'Acceso denegado a esta ruta' }, { status: 403 });
     }
 
-    if (action === 'move') {
-      if (!isAllowed(targetPath)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
-      
-      // S3 no tiene el comando "Move", requiere Copiar y luego Borrar el original
-      await r2.send(new CopyObjectCommand({
-        Bucket: BUCKET_NAME,
-        CopySource: encodeURI(`${BUCKET_NAME}/${path}`),
-        Key: targetPath
-      }));
-      
-      await r2.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: path }));
-      return NextResponse.json({ success: true });
+    let command;
+    if (action === 'upload') {
+      command = new PutObjectCommand({ Bucket: BUCKET_NAME, Key: path, ContentType: contentType || 'application/octet-stream' });
+    } else if (action === 'download') {
+      command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: path });
+    } else {
+      return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
     }
 
-    return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
+    const signedUrl = await getSignedUrl(r2, command, { expiresIn: 3600 }); // Expira en 1 hora
+    
+    return NextResponse.json({ signedUrl });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
