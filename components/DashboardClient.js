@@ -227,6 +227,29 @@ export default function DashboardClient({ user, isAdmin }) {
               </a>
             </>
           )}
+
+          {/* Sincronización Local */}
+          <div className="px-3 pt-4 pb-1">
+            <span className="text-[10px] font-medium text-[#bbb] uppercase tracking-widest">Sincronización</span>
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch('http://localhost:4000/pick-folder', { method: 'POST' });
+                if (!res.ok) throw new Error('Agent down');
+                const data = await res.json();
+                alert(`✅ Carpeta vinculada con éxito en tu computadora:\n\n${data.folder}\n\nTodos los cambios se reflejarán de inmediato.`);
+              } catch (err) {
+                alert('❌ No se pudo conectar con el Agente Local.\n\nAsegúrate de tener abierta tu terminal corriendo el comando:\nnode sync-agent.js');
+              }
+            }}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all"
+          >
+            <div className="flex items-center gap-2.5">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Vincular PC
+            </div>
+          </button>
         </nav>
 
         {/* User info */}
