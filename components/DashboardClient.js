@@ -64,6 +64,13 @@ export default function DashboardClient({ user, isAdmin }) {
   const router = useRouter()
   const supabase = createClient()
 
+  useEffect(() => {
+    // Si venimos de la página de invitaciones con una pestaña específica (Ej: ?tab=autorizaciones)
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam) setTab(tabParam);
+  }, []);
+
   useEffect(() => { 
     loadFiles() 
     

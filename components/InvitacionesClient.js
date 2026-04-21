@@ -68,18 +68,28 @@ export default function InvitacionesClient({ user, invitations: initialInvitatio
             Mis archivos
           </a>
 
+          <a href="/dashboard?tab=papelera" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            Papelera
+          </a>
+
           <div className="px-3 pt-4 pb-1">
             <span className="text-[10px] font-medium text-[#bbb] uppercase tracking-widest">Admin</span>
           </div>
 
-          <a href="/dashboard" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all">
+          <a href="/dashboard?tab=todos" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             Todos los archivos
           </a>
 
-          <a href="/dashboard" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all">
+          <a href="/dashboard?tab=usuarios" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             Usuarios
+          </a>
+
+          <a href="/dashboard?tab=autorizaciones" className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Autorizaciones
           </a>
 
           <button
@@ -87,6 +97,32 @@ export default function InvitacionesClient({ user, invitations: initialInvitatio
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5 19.79 19.79 0 0 1 1.62 4.9 2 2 0 0 1 3.6 2.71h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10.1a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 17.5z"/></svg>
             Invitaciones
+          </button>
+
+          {/* Sincronización Local */}
+          <div className="px-3 pt-4 pb-1">
+            <span className="text-[10px] font-medium text-[#bbb] uppercase tracking-widest">Sincronización</span>
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                const { data: { session } } = await supabase.auth.getSession();
+                const res = await fetch('http://localhost:4000/pick-folder', { 
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ session })
+                });
+                if (!res.ok) throw new Error('Agent down');
+                const data = await res.json();
+                alert(`✅ Carpeta vinculada con éxito en tu computadora:\n\n${data.folder}\n\nTodos los cambios se reflejarán de inmediato.`);
+              } catch (err) {
+                alert('❌ No se pudo conectar con el Agente Local.\n\nAsegúrate de tener abierta tu terminal corriendo el comando:\nnode sync-agent.js');
+              }
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Vincular PC
           </button>
         </nav>
 
