@@ -108,20 +108,25 @@ export default function DashboardClient({ user, isAdmin }) {
       const { data: devs } = await supabase.from('user_devices').select('*').order('created_at', { ascending: false })
       setDevices(devs || [])
 
-      // Listar archivos de cada usuario
-      const allF = []
-      for (const u of users || []) {
-        const { data: uf, error: ufError } = await supabase.storage
-          .from(BUCKET)
-          .list(u.id, { limit: 10000 })
-          
-        if (ufError) {
-          console.error(`Error al listar archivos de ${u.email}:`, ufError.message)
-        } else if (Array.isArray(uf)) {
-          allF.push(...uf.map(f => ({ ...f, ownerEmail: u.email, ownerId: u.id })))
-        }
+      // OPTIMIZACIÓN: Usar la nueva vista para obtener todos los archivos en una sola consulta
+      const { data: viewData, error: viewError } = await supabase
+        .from('all_files_with_owner')
+        .select('*');
+
+      if (viewError) {
+        console.error("Error al cargar la vista de admin:", viewError.message);
+        setListError(prev => (prev ? prev + ' | ' : '') + 'Error al cargar archivos de admin: ' + viewError.message);
+        setAllFiles([]);
+      } else {
+        // Transformar los datos de la vista para que coincidan con la estructura que el componente espera
+        const transformedFiles = viewData.map(f => {
+          const pathParts = f.name.split('/');
+          pathParts.shift(); // Quitar el user_id del principio del path
+          const shortName = pathParts.join('/');
+          return { ...f, name: shortName }; // Reemplazar el 'name' largo por el corto
+        });
+        setAllFiles(transformedFiles);
       }
-      setAllFiles(allF)
     }
     setLoading(false)
   }
