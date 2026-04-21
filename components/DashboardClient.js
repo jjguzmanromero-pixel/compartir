@@ -79,6 +79,9 @@ export default function DashboardClient({ user, isAdmin }) {
       .on('postgres_changes', { event: '*', schema: 'storage', table: 'objects' }, () => {
         loadFiles() // Refresca la lista visible sin importar en qué pestaña estés
       })
+      .on('broadcast', { event: 'refresh' }, () => {
+        loadFiles() // Refresca la lista cuando el Agente R2 avisa de cambios
+      })
       .subscribe()
       
     return () => { supabase.removeChannel(channel) }
