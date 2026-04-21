@@ -45,7 +45,18 @@ export default function DashboardClient({ user, isAdmin }) {
   const router = useRouter()
   const supabase = createClient()
 
-  useEffect(() => { loadFiles() }, [limit, currentPath]) // Recargar si cambian de carpeta
+  useEffect(() => { 
+    loadFiles() 
+    
+    // Realtime: Reaccionar al instante si el Agente Local u otro usuario sube/borra archivos
+    const channel = supabase.channel('realtime-dashboard')
+      .on('postgres_changes', { event: '*', schema: 'storage', table: 'objects' }, () => {
+        loadFiles() // Refresca la lista visible sin importar en qué pestaña estés
+      })
+      .subscribe()
+      
+    return () => { supabase.removeChannel(channel) }
+  }, [limit, currentPath]) // Recargar si cambian de carpeta
 
   async function loadFiles() {
     setLoading(true)
@@ -152,7 +163,9 @@ export default function DashboardClient({ user, isAdmin }) {
   async function deleteFile(fileName, ownerId) {
     const path = getFilePath(fileName, ownerId)
     const basePath = `${ownerId || user.id}`
-    const trashPath = `${basePath}/.papelera/${fileName}`
+    const relativePath = path.substring(basePath.length + 1) // Obtener ruta sin el ID del usuario
+    const trashName = relativePath.replace(/\//g, '___') // Codificar carpetas con ___
+    const trashPath = `${basePath}/.papelera/${trashName}`
     
     // Optimización: Soft Delete (Mover a Papelera)
     let { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
@@ -180,7 +193,8 @@ export default function DashboardClient({ user, isAdmin }) {
 
   async function restoreFile(fileName, ownerId) {
     const basePath = `${ownerId || user.id}`
-    await supabase.storage.from(BUCKET).move(`${basePath}/.papelera/${fileName}`, `${basePath}/${fileName}`)
+    const originalRelativePath = fileName.replace(/___/g, '/') // Decodificar ruta original
+    await supabase.storage.from(BUCKET).move(`${basePath}/.papelera/${fileName}`, `${basePath}/${originalRelativePath}`)
     await loadFiles()
   }
 
@@ -588,7 +602,7 @@ export default function DashboardClient({ user, isAdmin }) {
                     <span className="text-xl">{getIcon(file.name)}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-[#1a1a1a] truncate">
-                        {file.name.replace(/^\d+_/, '')}
+                        {file.name.replace(/^\d+_/, '').replace(/___/g, '/')}
                       </p>
                       <p className="text-xs text-[#aaa]">{formatBytes(file.metadata?.size)}</p>
                     </div>
