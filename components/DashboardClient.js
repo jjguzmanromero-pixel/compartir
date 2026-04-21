@@ -115,7 +115,7 @@ export default function DashboardClient({ user, isAdmin }) {
   async function createFolder() {
     const folderName = prompt('Nombre de la nueva carpeta:')
     if (!folderName) return
-    const safeName = folderName.replace(/[\/\\]/g, '_') // Solo evitar slashes
+    const safeName = folderName.replace(/[<>:"/\\|?*#%&+]/g, '_')
     const folderPath = currentPath ? `${user.id}/${currentPath}/${safeName}` : `${user.id}/${safeName}`
     
     setUploading(true)
@@ -138,8 +138,7 @@ export default function DashboardClient({ user, isAdmin }) {
 
     try {
       for (const file of filesArray) {
-        // Usar el nombre real sin corromper caracteres como %, &, etc.
-        const safeName = file.name.replace(/[\/\\]/g, '_')
+        const safeName = file.name.replace(/[<>:"/\\|?*#%&+]/g, '_')
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
         const path = `${folderPath}/${safeName}`
         const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
