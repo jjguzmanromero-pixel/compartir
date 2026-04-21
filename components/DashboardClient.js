@@ -149,10 +149,10 @@ export default function DashboardClient({ user, isAdmin }) {
     setUploading(false)
   }
 
-  async function deleteFile(filePath, ownerId) {
+  async function deleteFile(fileName, ownerId) {
     const path = getFilePath(fileName, ownerId)
     const basePath = `${ownerId || user.id}`
-    const trashPath = `${basePath}/.papelera/${filePath}`
+    const trashPath = `${basePath}/.papelera/${fileName}`
     
     // Optimización: Soft Delete (Mover a Papelera)
     let { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
