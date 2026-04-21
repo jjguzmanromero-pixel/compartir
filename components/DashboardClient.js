@@ -51,6 +51,8 @@ export default function DashboardClient({ user, isAdmin }) {
   const [tab, setTab] = useState('mis-archivos') // 'mis-archivos' | 'todos' | 'usuarios'
   const [dragOver, setDragOver] = useState(false)
   const [viewMode, setViewMode] = useState('list') // 'list' | 'grid'
+  const [sortBy, setSortBy] = useState('created_at') // 'created_at' | 'name' | 'size'
+  const [sortOrder, setSortOrder] = useState('desc') // 'asc' | 'desc'
   const [search, setSearch] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [expandedUser, setExpandedUser] = useState(null)
@@ -307,6 +309,25 @@ export default function DashboardClient({ user, isAdmin }) {
     f.name?.toLowerCase().includes(search.toLowerCase())
   )
 
+  // Helper de ordenamiento dinámico local
+  const sortFilesList = (list) => {
+    return [...list].sort((a, b) => {
+      const isFolderA = !a.metadata;
+      const isFolderB = !b.metadata;
+      
+      // Mantener las carpetas siempre arriba
+      if (isFolderA && !isFolderB) return -1;
+      if (!isFolderA && isFolderB) return 1;
+
+      let valA = sortBy === 'name' ? decodeSafe(a.name).toLowerCase() : sortBy === 'size' ? (a.metadata?.size || 0) : new Date(a.created_at || 0).getTime();
+      let valB = sortBy === 'name' ? decodeSafe(b.name).toLowerCase() : sortBy === 'size' ? (b.metadata?.size || 0) : new Date(b.created_at || 0).getTime();
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[#f7f6f3]">
 
@@ -537,13 +558,31 @@ export default function DashboardClient({ user, isAdmin }) {
                   </span>
                 ))}
               </div>
-              <div className="flex bg-[#f7f6f3] p-1 rounded-lg border border-[#e8e6e0] shrink-0 self-start sm:self-auto">
-                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de lista">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                </button>
-                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de cuadrícula">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                </button>
+              <div className="flex gap-2 items-center shrink-0 self-start sm:self-auto">
+                <select
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [col, ord] = e.target.value.split('-');
+                    setSortBy(col);
+                    setSortOrder(ord);
+                  }}
+                  className="text-xs bg-white border border-[#e8e6e0] rounded-lg px-2.5 py-1.5 text-[#555] focus:outline-none hover:border-[#ccc] cursor-pointer"
+                >
+                  <option value="created_at-desc">Más recientes</option>
+                  <option value="created_at-asc">Más antiguos</option>
+                  <option value="name-asc">Nombre (A-Z)</option>
+                  <option value="name-desc">Nombre (Z-A)</option>
+                  <option value="size-desc">Mayor tamaño</option>
+                  <option value="size-asc">Menor tamaño</option>
+                </select>
+                <div className="flex bg-[#f7f6f3] p-1 rounded-lg border border-[#e8e6e0]">
+                  <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de lista">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  </button>
+                  <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de cuadrícula">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -575,7 +614,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-12 text-[#aaa] text-sm">Cargando...</div>
             ) : (
               <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
-                {filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera').map(file => {
+                {sortFilesList(filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')).map(file => {
                   const isFolder = !file.metadata; // Supabase retorna nulo en metadatos para carpetas
                   return (
                     <div key={file.id || file.name} className={viewMode === 'grid' ? "flex flex-col items-center text-center p-4 bg-white rounded-xl border border-[#e8e6e0] hover:border-[#ccc] transition-all group relative" : "flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group"}>
@@ -638,7 +677,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
             ) : (
               <div className="space-y-1.5">
-                {trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder').map(file => (
+                {sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder')).map(file => (
                   <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
                     <span className="text-xl">{getIcon(file.name)}</span>
                     <div className="flex-1 min-w-0">
@@ -670,20 +709,38 @@ export default function DashboardClient({ user, isAdmin }) {
                 <h1 className="text-xl font-semibold text-[#1a1a1a]">Todos los archivos</h1>
                 <p className="text-sm text-[#888] mt-0.5">{allFiles.length} archivo{allFiles.length !== 1 ? 's' : ''} en el sistema</p>
               </div>
-              <div className="flex bg-[#f7f6f3] p-1 rounded-lg border border-[#e8e6e0]">
-                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de lista">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                </button>
-                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de cuadrícula">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                </button>
+              <div className="flex gap-2 items-center">
+                <select
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [col, ord] = e.target.value.split('-');
+                    setSortBy(col);
+                    setSortOrder(ord);
+                  }}
+                  className="text-xs bg-white border border-[#e8e6e0] rounded-lg px-2.5 py-1.5 text-[#555] focus:outline-none hover:border-[#ccc] cursor-pointer"
+                >
+                  <option value="created_at-desc">Más recientes</option>
+                  <option value="created_at-asc">Más antiguos</option>
+                  <option value="name-asc">Nombre (A-Z)</option>
+                  <option value="name-desc">Nombre (Z-A)</option>
+                  <option value="size-desc">Mayor tamaño</option>
+                  <option value="size-asc">Menor tamaño</option>
+                </select>
+                <div className="flex bg-[#f7f6f3] p-1 rounded-lg border border-[#e8e6e0]">
+                  <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de lista">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  </button>
+                  <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de cuadrícula">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  </button>
+                </div>
               </div>
             </div>
             {allFiles.length === 0 ? (
               <div className="text-center py-16 text-[#aaa] text-sm">No hay archivos aún</div>
             ) : (
               <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
-                {allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera').map(file => {
+                {sortFilesList(allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')).map(file => {
                   const isFolder = !file.metadata;
                   return (
                     <div key={`${file.ownerId}_${file.name}`} className={viewMode === 'grid' ? "flex flex-col items-center text-center p-4 bg-white rounded-xl border border-[#e8e6e0] hover:border-[#ccc] transition-all group relative" : "flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group"}>
@@ -736,7 +793,7 @@ export default function DashboardClient({ user, isAdmin }) {
             </div>
             <div className="space-y-2">
               {allUsers.map(u => {
-                const uFiles = allFiles.filter(f => f.ownerId === u.id && f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')
+                const uFiles = sortFilesList(allFiles.filter(f => f.ownerId === u.id && f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera'))
                 const ini = u.email?.slice(0, 2).toUpperCase()
                 return (
                   <div key={u.id} className="bg-white rounded-xl border border-[#e8e6e0] overflow-hidden">
