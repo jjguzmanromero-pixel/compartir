@@ -545,6 +545,70 @@ export default function DashboardClient({ user, isAdmin }) {
             </div>
           </div>
         )}
+
+        {/* ADMIN — AUTORIZACIONES */}
+        {tab === 'autorizaciones' && isAdmin && (
+          <div>
+            <div className="mb-6">
+              <h1 className="text-xl font-semibold text-[#1a1a1a]">Autorizaciones de Equipos</h1>
+              <p className="text-sm text-[#888] mt-0.5">Controla desde qué dispositivos pueden acceder los usuarios</p>
+            </div>
+            {devices.length === 0 ? (
+              <div className="text-center py-16 text-[#aaa] text-sm">No hay dispositivos registrados</div>
+            ) : (
+              <div className="space-y-2">
+                {devices.map(device => {
+                  const userOwner = allUsers.find(u => u.id === device.user_id)
+                  return (
+                    <div key={device.id} className="bg-white rounded-xl border border-[#e8e6e0] p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          device.status === 'approved' ? 'bg-green-50 text-green-600' :
+                          device.status === 'pending' ? 'bg-amber-50 text-amber-600' :
+                          'bg-red-50 text-red-600'
+                        }`}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            {device.device_name.includes('Móvil') || device.device_name.includes('iPhone') 
+                              ? <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                              : <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                            }
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-[#1a1a1a]">{userOwner?.email || 'Usuario Desconocido'}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-[#555] font-medium">{device.device_name}</span>
+                            <span className="text-[10px] text-[#aaa]">ID: {device.device_id.slice(0,8)}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
+                              device.status === 'approved' ? 'bg-green-100 text-green-700' :
+                              device.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {device.status === 'approved' ? 'Aprobado' : device.status === 'pending' ? 'Pendiente' : 'Bloqueado'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        {device.status !== 'approved' && (
+                          <button onClick={() => updateDeviceStatus(device.id, 'approved')} className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 rounded-lg transition-colors">
+                            Aprobar
+                          </button>
+                        )}
+                        {device.status !== 'blocked' && (
+                          <button onClick={() => updateDeviceStatus(device.id, 'blocked')} className="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 rounded-lg transition-colors">
+                            Bloquear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
