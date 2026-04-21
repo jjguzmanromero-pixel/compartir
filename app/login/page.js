@@ -35,8 +35,27 @@ export default function LoginPage() {
     setError('')
 
     if (mode === 'register') {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) { setError(error.message); setLoading(false); return }
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      
+      if (error) { 
+        // Manejar error directo de Supabase
+        if (error.message.includes('already registered') || error.message.includes('already exists')) {
+          setError('Este correo electrónico ya está registrado en otra cuenta.')
+        } else {
+          setError(error.message)
+        }
+        setLoading(false)
+        return 
+      }
+
+      // Supabase a veces oculta el error por seguridad (protección de enumeración)
+      // Si el arreglo "identities" está vacío, significa que el usuario ya existía previamente
+      if (data?.user && data.user.identities && data.user.identities.length === 0) {
+        setError('Este correo electrónico ya está registrado en otra cuenta.')
+        setLoading(false)
+        return
+      }
+
       setError('✓ Revisa tu correo para confirmar tu cuenta')
       setLoading(false)
       return
