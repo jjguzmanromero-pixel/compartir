@@ -147,6 +147,13 @@ export default function DashboardClient({ user, isAdmin }) {
   async function createFolder() {
     const folderName = prompt('Nombre de la nueva carpeta:')
     if (!folderName) return
+
+    // SEGURIDAD: Evitar que el usuario cree una carpeta reservada del sistema
+    if (folderName.trim().toLowerCase() === '.papelera') {
+      alert('El nombre ".papelera" está reservado por el sistema. Por favor, elige otro nombre.');
+      return;
+    }
+    
     const safeName = encodeSafe(folderName)
     const folderPath = currentPath ? `${user.id}/${currentPath}/${safeName}` : `${user.id}/${safeName}`
     
@@ -170,6 +177,12 @@ export default function DashboardClient({ user, isAdmin }) {
 
     try {
       for (const file of filesArray) {
+        // SEGURIDAD: Evitar subir archivos con el nombre reservado de la papelera
+        if (file.name === '.papelera') {
+          setUploadError('El nombre ".papelera" es un directorio reservado. Archivo ignorado.');
+          continue;
+        }
+
         const safeName = encodeSafe(file.name)
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
         const path = `${folderPath}/${safeName}`
@@ -323,6 +336,28 @@ export default function DashboardClient({ user, isAdmin }) {
   }
 
   async function updateDeviceStatus(deviceId, newStatus) {
+    // PREVENCIÓN DE BLOQUEO DE ADMIN (Admin Lockout Prevention)
+    if (newStatus !== 'approved') {
+      const targetDevice = devices.find(d => d.id === deviceId);
+      if (targetDevice) {
+        const targetUser = allUsers.find(u => u.id === targetDevice.user_id);
+        
+        if (targetUser && targetUser.role === 'admin') {
+          // Contar cuántos dispositivos aprobados le quedarían a este administrador
+          const remainingApproved = devices.filter(d => 
+            d.user_id === targetUser.id && 
+            d.id !== deviceId && 
+            d.status === 'approved'
+          ).length;
+
+          if (remainingApproved === 0) {
+            alert("🛡️ Por seguridad, no puedes bloquear el último equipo de un administrador. Debe conservar al menos un acceso.");
+            return;
+          }
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('user_devices')
       .update({ status: newStatus })
