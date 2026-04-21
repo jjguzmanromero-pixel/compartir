@@ -133,10 +133,23 @@ export default function DashboardClient({ user, isAdmin }) {
     const trashPath = `${basePath}/.papelera/${filePath}`
     
     // Optimización: Soft Delete (Mover a Papelera)
-    const { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
-    if (error) {
-      await supabase.storage.from(BUCKET).remove([path]) // Fallback si falla
+    let { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
+    
+    // Si el movimiento falla, puede ser porque la carpeta .papelera no existe.
+    // La creamos subiendo un placeholder y reintentamos.
+    if (error && error.message.includes('does not exist')) {
+      console.warn("Move failed, creating .papelera folder and retrying...");
+      // Crear placeholder para forzar la creación de la carpeta
+      await supabase.storage.from(BUCKET).upload(`${basePath}/.papelera/.emptyFolderPlaceholder`, new Blob(['']));
+      
+      // Reintentar el movimiento
+      const { error: retryError } = await supabase.storage.from(BUCKET).move(path, trashPath);
+      error = retryError;
     }
+
+    // Si después de reintentar sigue fallando, hacemos un borrado definitivo como fallback.
+    if (error) await supabase.storage.from(BUCKET).remove([path])
+
     await loadFiles()
   }
 
@@ -518,7 +531,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
             ) : (
               <div className="space-y-1.5">
-                {trashFiles.map(file => (
+                {trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder').map(file => (
                   <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
                     <span className="text-xl">{getIcon(file.name)}</span>
                     <div className="flex-1 min-w-0">
