@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '../../../lib/supabase-server';
+import { createServerSupabaseClient } from '../../../../lib/supabase-server';
 import { createClient } from '@supabase/supabase-js';
-import { r2, BUCKET_NAME } from '../../../lib/r2';
+import { r2, BUCKET_NAME } from '../../../../lib/r2';
 import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
