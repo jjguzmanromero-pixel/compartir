@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
+import { Loader2 } from 'lucide-react'
 
 const BUCKET = 'user-files'
 
@@ -58,6 +59,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const [expandedUser, setExpandedUser] = useState(null)
   const [showAboutModal, setShowAboutModal] = useState(false)
   const [listError, setListError] = useState('')
+  const [processingFiles, setProcessingFiles] = useState(new Set()) // Rastrea archivos en operación
   const fileRef = useRef()
   const router = useRouter()
   const supabase = createClient()
@@ -177,46 +179,69 @@ export default function DashboardClient({ user, isAdmin }) {
   }
 
   async function deleteFile(fileName, ownerId) {
-    const path = getFilePath(fileName, ownerId)
-    const basePath = `${ownerId || user.id}`
-    const relativePath = path.substring(basePath.length + 1) // Obtener ruta sin el ID del usuario
-    const trashName = relativePath.replace(/\//g, '___') // Codificar carpetas con ___
-    const trashPath = `${basePath}/.papelera/${trashName}`
-    
-    // Optimización: Soft Delete (Mover a Papelera)
-    let { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
-    
-    // Si el movimiento falla, puede ser porque la carpeta .papelera no existe.
-    // La creamos subiendo un placeholder y reintentamos.
-    if (error && error.message.includes('does not exist')) {
-      console.warn("Move failed, creating .papelera folder and retrying...");
-      // Crear placeholder para forzar la creación de la carpeta
-      await supabase.storage.from(BUCKET).upload(`${basePath}/.papelera/.emptyFolderPlaceholder`, new Blob(['']));
+    const fileKey = `${ownerId || user.id}/${fileName}`;
+    setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
+
+    try {
+      const path = getFilePath(fileName, ownerId)
+      const basePath = `${ownerId || user.id}`
+      const relativePath = path.substring(basePath.length + 1) // Obtener ruta sin el ID del usuario
+      const trashName = relativePath.replace(/\//g, '___') // Codificar carpetas con ___
+      const trashPath = `${basePath}/.papelera/${trashName}`
       
-      // Reintentar el movimiento
-      const { error: retryError } = await supabase.storage.from(BUCKET).move(path, trashPath);
-      error = retryError;
+      // Optimización: Soft Delete (Mover a Papelera)
+      let { error } = await supabase.storage.from(BUCKET).move(path, trashPath)
+      
+      // Si el movimiento falla, puede ser porque la carpeta .papelera no existe.
+      // La creamos subiendo un placeholder y reintentamos.
+      if (error && error.message.includes('does not exist')) {
+        console.warn("Move failed, creating .papelera folder and retrying...");
+        // Crear placeholder para forzar la creación de la carpeta
+        await supabase.storage.from(BUCKET).upload(`${basePath}/.papelera/.emptyFolderPlaceholder`, new Blob(['']));
+        
+        // Reintentar el movimiento
+        const { error: retryError } = await supabase.storage.from(BUCKET).move(path, trashPath);
+        error = retryError;
+      }
+  
+      // Si después de reintentar sigue fallando, hacemos un borrado definitivo como fallback.
+      if (error) {
+        console.error("Error al mover a papelera:", error);
+        await supabase.storage.from(BUCKET).remove([path])
+      }
+  
+      await loadFiles()
+    } finally {
+      setProcessingFiles(prev => {
+        const next = new Set(prev);
+        next.delete(fileKey);
+        return next;
+      });
     }
-
-    // Si después de reintentar sigue fallando, hacemos un borrado definitivo como fallback.
-    if (error) {
-      console.error("Error al mover a papelera:", error);
-      await supabase.storage.from(BUCKET).remove([path])
-    }
-
-    await loadFiles()
   }
 
   async function restoreFile(fileName, ownerId) {
-    const basePath = `${ownerId || user.id}`
-    const originalRelativePath = fileName.replace(/___/g, '/') // Decodificar ruta original
-    await supabase.storage.from(BUCKET).move(`${basePath}/.papelera/${fileName}`, `${basePath}/${originalRelativePath}`)
-    await loadFiles()
+    const fileKey = `${ownerId || user.id}/${fileName}`;
+    setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
+    try {
+      const basePath = `${ownerId || user.id}`
+      const originalRelativePath = fileName.replace(/___/g, '/') // Decodificar ruta original
+      await supabase.storage.from(BUCKET).move(`${basePath}/.papelera/${fileName}`, `${basePath}/${originalRelativePath}`)
+      await loadFiles()
+    } finally {
+      setProcessingFiles(prev => { const next = new Set(prev); next.delete(fileKey); return next; });
+    }
   }
 
   async function hardDeleteFile(fileName, ownerId) {
-    await supabase.storage.from(BUCKET).remove([`${ownerId || user.id}/.papelera/${fileName}`])
-    await loadFiles()
+    const fileKey = `${ownerId || user.id}/${fileName}`;
+    setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
+    try {
+      await supabase.storage.from(BUCKET).remove([`${ownerId || user.id}/.papelera/${fileName}`])
+      await loadFiles()
+    } finally {
+      setProcessingFiles(prev => { const next = new Set(prev); next.delete(fileKey); return next; });
+    }
   }
 
   async function emptyTrash() {
@@ -625,6 +650,8 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
                 {sortFilesList(filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')).map(file => {
                   const isFolder = !file.metadata; // Supabase retorna nulo en metadatos para carpetas
+                  const fileKey = `${user.id}/${file.name}`;
+                  const isProcessing = processingFiles.has(fileKey);
                   return (
                     <div key={file.id || file.name} className={viewMode === 'grid' ? "flex flex-col items-center text-center p-4 bg-white rounded-xl border border-[#e8e6e0] hover:border-[#ccc] transition-all group relative" : "flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group"}>
                       <span className={viewMode === 'grid' ? "text-4xl mb-3" : "text-xl"}>{isFolder ? '📁' : getIcon(file.name)}</span>
@@ -640,20 +667,28 @@ export default function DashboardClient({ user, isAdmin }) {
                         )}
                         <p className="text-xs text-[#aaa] mt-0.5">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
                       </div>
-                      <div className={viewMode === 'grid' ? "absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm border border-[#e8e6e0]" : "flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"}>
-                        {!isFolder && (
+                      <div className={viewMode === 'grid' ? `absolute top-2 right-2 flex gap-1 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm border border-[#e8e6e0] ${isProcessing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}` : `flex gap-1 transition-opacity ${isProcessing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        {isProcessing ? (
+                          <div className="p-1.5 flex items-center justify-center">
+                            <Loader2 className="animate-spin text-[#888]" size={16} />
+                          </div>
+                        ) : (
                           <>
-                            <button onClick={() => shareFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                            </button>
-                            <button onClick={() => downloadFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-[#f7f6f3] text-[#888] transition-colors" title="Descargar">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            {!isFolder && (
+                              <>
+                                <button onClick={() => shareFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                                </button>
+                                <button onClick={() => downloadFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-[#f7f6f3] text-[#888] transition-colors" title="Descargar">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                </button>
+                              </>
+                            )}
+                            <button onClick={() => isFolder ? alert('Para eliminar la carpeta, primero entra en ella y elimina sus archivos.') : deleteFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                             </button>
                           </>
                         )}
-                        <button onClick={() => isFolder ? alert('Para eliminar la carpeta, primero entra en ella y elimina sus archivos.') : deleteFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                        </button>
                       </div>
                     </div>
                   )
@@ -686,25 +721,38 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
             ) : (
               <div className="space-y-1.5">
-                {sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder')).map(file => (
-                  <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
-                    <span className="text-xl">{getIcon(file.name)}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#1a1a1a] truncate">
-                        {decodeSafe(file.name.replace(/^\d+_/, '').replace(/___/g, '/'))}
-                      </p>
-                      <p className="text-xs text-[#aaa]">{formatBytes(file.metadata?.size)}</p>
+                {sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder')).map(file => {
+                  const fileKey = `${user.id}/${file.name}`;
+                  const isProcessing = processingFiles.has(fileKey);
+                  return (
+                    <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
+                      <span className="text-xl">{getIcon(file.name)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#1a1a1a] truncate">
+                          {decodeSafe(file.name.replace(/^\d+_/, '').replace(/___/g, '/'))}
+                        </p>
+                        <p className="text-xs text-[#aaa]">{formatBytes(file.metadata?.size)}</p>
+                      </div>
+                      <div className={`flex gap-2 transition-opacity ${isProcessing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        {isProcessing ? (
+                          <div className="flex items-center gap-2 px-3 py-1">
+                            <Loader2 className="animate-spin text-[#888]" size={16} />
+                            <span className="text-xs text-[#888]">Procesando...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <button onClick={() => restoreFile(file.name, null)} className="px-3 py-1 bg-[#1a1a1a] text-white rounded-lg text-xs font-medium hover:bg-[#333] transition-colors">
+                              Restaurar
+                            </button>
+                            <button onClick={() => hardDeleteFile(file.name, null)} className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">
+                              Eliminar final
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => restoreFile(file.name, null)} className="px-3 py-1 bg-[#1a1a1a] text-white rounded-lg text-xs font-medium hover:bg-[#333] transition-colors">
-                        Restaurar
-                      </button>
-                      <button onClick={() => hardDeleteFile(file.name, null)} className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">
-                        Eliminar final
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -751,6 +799,8 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
                 {sortFilesList(allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')).map(file => {
                   const isFolder = !file.metadata;
+                  const fileKey = `${file.ownerId}/${file.name}`;
+                  const isProcessing = processingFiles.has(fileKey);
                   return (
                     <div key={`${file.ownerId}_${file.name}`} className={viewMode === 'grid' ? "flex flex-col items-center text-center p-4 bg-white rounded-xl border border-[#e8e6e0] hover:border-[#ccc] transition-all group relative" : "flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group"}>
                       <span className={viewMode === 'grid' ? "text-4xl mb-3" : "text-xl"}>{isFolder ? '📁' : getIcon(file.name)}</span>
@@ -770,20 +820,28 @@ export default function DashboardClient({ user, isAdmin }) {
                           {file.ownerEmail?.split('@')[0]}
                         </span>
                       )}
-                      <div className={viewMode === 'grid' ? "absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm border border-[#e8e6e0]" : "flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"}>
-                        {!isFolder && (
+                      <div className={viewMode === 'grid' ? `absolute top-2 right-2 flex gap-1 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm border border-[#e8e6e0] ${isProcessing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}` : `flex gap-1 transition-opacity ${isProcessing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        {isProcessing ? (
+                          <div className="p-1.5 flex items-center justify-center">
+                            <Loader2 className="animate-spin text-[#888]" size={16} />
+                          </div>
+                        ) : (
                           <>
-                            <button onClick={() => shareFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                            </button>
-                            <button onClick={() => downloadFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-[#f7f6f3] text-[#888] transition-colors">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            {!isFolder && (
+                              <>
+                                <button onClick={() => shareFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                                </button>
+                                <button onClick={() => downloadFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-[#f7f6f3] text-[#888] transition-colors">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                </button>
+                              </>
+                            )}
+                            <button onClick={() => isFolder ? alert('Las carpetas no se pueden borrar directamente desde el panel de administrador por seguridad.') : deleteFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                             </button>
                           </>
                         )}
-                        <button onClick={() => isFolder ? alert('Las carpetas no se pueden borrar directamente desde el panel de administrador por seguridad.') : deleteFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                        </button>
                       </div>
                     </div>
                   )
@@ -861,6 +919,8 @@ export default function DashboardClient({ user, isAdmin }) {
                       <div className="bg-[#fafaf8] border-t border-[#e8e6e0] p-4 space-y-1.5">
                         {uFiles.map(file => {
                           const isFolder = !file.metadata;
+                          const fileKey = `${u.id}/${file.name}`;
+                          const isProcessing = processingFiles.has(fileKey);
                           return (
                             <div key={file.name} className="flex items-center gap-3 bg-white rounded-lg px-3 py-2 border border-[#e8e6e0] group hover:border-[#ccc] transition-all">
                               <span className="text-lg">{isFolder ? '📁' : getIcon(file.name)}</span>
@@ -870,15 +930,23 @@ export default function DashboardClient({ user, isAdmin }) {
                                 </p>
                                 <p className="text-[10px] text-[#aaa]">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
                               </div>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {!isFolder && (
-                                  <button onClick={() => downloadFile(file.name, u.id)} className="p-1 rounded-md hover:bg-[#f7f6f3] text-[#888] transition-colors" title="Descargar">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                  </button>
+                              <div className={`flex gap-1 transition-opacity ${isProcessing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                {isProcessing ? (
+                                  <div className="p-1 flex items-center justify-center">
+                                    <Loader2 className="animate-spin text-[#888]" size={14} />
+                                  </div>
+                                ) : (
+                                  <>
+                                    {!isFolder && (
+                                      <button onClick={() => downloadFile(file.name, u.id)} className="p-1 rounded-md hover:bg-[#f7f6f3] text-[#888] transition-colors" title="Descargar">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                      </button>
+                                    )}
+                                    <button onClick={() => isFolder ? alert('Las carpetas no se pueden borrar directamente por seguridad.') : deleteFile(file.name, u.id)} className="p-1 rounded-md hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                    </button>
+                                  </>
                                 )}
-                                <button onClick={() => isFolder ? alert('Las carpetas no se pueden borrar directamente por seguridad.') : deleteFile(file.name, u.id)} className="p-1 rounded-md hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                                </button>
                               </div>
                             </div>
                           )
