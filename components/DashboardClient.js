@@ -134,6 +134,19 @@ export default function DashboardClient({ user, isAdmin }) {
     URL.revokeObjectURL(url)
   }
 
+  async function toggleUserSuspension(userId, currentStatus) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_suspended: !currentStatus })
+      .eq('id', userId)
+
+    if (!error) {
+      setAllUsers(allUsers.map(u => u.id === userId ? { ...u, is_suspended: !currentStatus } : u))
+    } else {
+      alert("Error al actualizar usuario: " + error.message)
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut()
     router.push('/login')
@@ -408,11 +421,27 @@ export default function DashboardClient({ user, isAdmin }) {
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-[#1a1a1a]">{u.email}</p>
-                      <p className="text-xs text-[#aaa]">{u.role || 'usuario'}</p>
+                      <p className="text-xs text-[#aaa]">
+                        {u.role || 'usuario'} {u.is_suspended && <span className="text-red-500 font-medium ml-1">• Suspendido</span>}
+                      </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-[#1a1a1a]">{uFiles.length}</p>
-                      <p className="text-xs text-[#aaa]">archivo{uFiles.length !== 1 ? 's' : ''}</p>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-sm font-medium text-[#1a1a1a]">{uFiles.length}</p>
+                        <p className="text-xs text-[#aaa]">archivo{uFiles.length !== 1 ? 's' : ''}</p>
+                      </div>
+                      {u.id !== user.id && (
+                        <button
+                          onClick={() => toggleUserSuspension(u.id, u.is_suspended)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            u.is_suspended
+                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                              : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-100'
+                          }`}
+                        >
+                          {u.is_suspended ? 'Reactivar' : 'Suspender'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
