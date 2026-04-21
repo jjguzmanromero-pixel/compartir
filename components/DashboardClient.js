@@ -149,6 +149,10 @@ export default function DashboardClient({ user, isAdmin }) {
 
     // Si después de reintentar sigue fallando, hacemos un borrado definitivo como fallback.
     if (error) await supabase.storage.from(BUCKET).remove([path])
+    if (error) {
+      console.error("Error al mover a papelera:", error);
+      await supabase.storage.from(BUCKET).remove([path])
+    }
 
     await loadFiles()
   }
