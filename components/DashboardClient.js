@@ -12,6 +12,11 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
+function decodeSafe(str) {
+  if (!str) return str;
+  try { return decodeURIComponent(str); } catch (e) { return str; }
+}
+
 function getIcon(name) {
   const ext = name?.split('.').pop()?.toLowerCase()
   const icons = {
@@ -115,7 +120,7 @@ export default function DashboardClient({ user, isAdmin }) {
   async function createFolder() {
     const folderName = prompt('Nombre de la nueva carpeta:')
     if (!folderName) return
-    const safeName = folderName.replace(/[<>:"/\\|?*#%&+]/g, '_')
+    const safeName = encodeURIComponent(folderName)
     const folderPath = currentPath ? `${user.id}/${currentPath}/${safeName}` : `${user.id}/${safeName}`
     
     setUploading(true)
@@ -138,7 +143,7 @@ export default function DashboardClient({ user, isAdmin }) {
 
     try {
       for (const file of filesArray) {
-        const safeName = file.name.replace(/[<>:"/\\|?*#%&+]/g, '_')
+        const safeName = encodeURIComponent(file.name)
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
         const path = `${folderPath}/${safeName}`
         const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
@@ -221,7 +226,7 @@ export default function DashboardClient({ user, isAdmin }) {
     const url = URL.createObjectURL(data)
     const a = document.createElement('a')
     a.href = url
-    a.download = fileName.replace(/^\d+_/, '') // quitar timestamp del nombre
+    a.download = decodeSafe(fileName.replace(/^\d+_/, '')) // decodificar el nombre original
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -501,7 +506,7 @@ export default function DashboardClient({ user, isAdmin }) {
                     onClick={() => setCurrentPath(arr.slice(0, idx + 1).join('/'))}
                     className="text-[#555] hover:text-[#1a1a1a] font-medium"
                   >
-                    {part}
+                    {decodeSafe(part)}
                   </button>
                 </span>
               ))}
@@ -543,11 +548,11 @@ export default function DashboardClient({ user, isAdmin }) {
                       <div className="flex-1 min-w-0">
                         {isFolder ? (
                           <button onClick={() => setCurrentPath(currentPath ? `${currentPath}/${file.name}` : file.name)} className="text-sm font-medium text-[#1a1a1a] truncate hover:underline">
-                            {file.name}
+                            {decodeSafe(file.name)}
                           </button>
                         ) : (
                           <p className="text-sm font-medium text-[#1a1a1a] truncate">
-                            {file.name.replace(/^\d+_/, '')}
+                            {decodeSafe(file.name.replace(/^\d+_/, ''))}
                           </p>
                         )}
                         <p className="text-xs text-[#aaa]">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
@@ -591,7 +596,7 @@ export default function DashboardClient({ user, isAdmin }) {
                     <span className="text-xl">{getIcon(file.name)}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-[#1a1a1a] truncate">
-                        {file.name.replace(/^\d+_/, '').replace(/___/g, '/')}
+                        {decodeSafe(file.name.replace(/^\d+_/, '').replace(/___/g, '/'))}
                       </p>
                       <p className="text-xs text-[#aaa]">{formatBytes(file.metadata?.size)}</p>
                     </div>
@@ -628,7 +633,7 @@ export default function DashboardClient({ user, isAdmin }) {
                       <span className="text-xl">{isFolder ? '📁' : getIcon(file.name)}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-[#1a1a1a] truncate">
-                          {isFolder ? file.name : file.name.replace(/^\d+_/, '')}
+                          {isFolder ? decodeSafe(file.name) : decodeSafe(file.name.replace(/^\d+_/, ''))}
                         </p>
                         <p className="text-xs text-[#aaa]">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
                       </div>
@@ -731,7 +736,7 @@ export default function DashboardClient({ user, isAdmin }) {
                               <span className="text-lg">{isFolder ? '📁' : getIcon(file.name)}</span>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-[#1a1a1a] truncate">
-                                  {isFolder ? file.name : file.name.replace(/^\d+_/, '')}
+                                  {isFolder ? decodeSafe(file.name) : decodeSafe(file.name.replace(/^\d+_/, ''))}
                                 </p>
                                 <p className="text-[10px] text-[#aaa]">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
                               </div>
