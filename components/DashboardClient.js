@@ -12,9 +12,14 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
+function encodeSafe(str) {
+  if (!str) return str;
+  return encodeURIComponent(str).replace(/~/g, '~7E').replace(/%/g, '~');
+}
+
 function decodeSafe(str) {
   if (!str) return str;
-  try { return decodeURIComponent(str); } catch (e) { return str; }
+  try { return decodeURIComponent(str.replace(/~/g, '%')); } catch (e) { return str; }
 }
 
 function getIcon(name) {
@@ -120,7 +125,7 @@ export default function DashboardClient({ user, isAdmin }) {
   async function createFolder() {
     const folderName = prompt('Nombre de la nueva carpeta:')
     if (!folderName) return
-    const safeName = encodeURIComponent(folderName)
+    const safeName = encodeSafe(folderName)
     const folderPath = currentPath ? `${user.id}/${currentPath}/${safeName}` : `${user.id}/${safeName}`
     
     setUploading(true)
@@ -143,7 +148,7 @@ export default function DashboardClient({ user, isAdmin }) {
 
     try {
       for (const file of filesArray) {
-        const safeName = encodeURIComponent(file.name)
+        const safeName = encodeSafe(file.name)
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
         const path = `${folderPath}/${safeName}`
         const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
