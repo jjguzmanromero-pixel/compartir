@@ -291,7 +291,12 @@ export default function DashboardClient({ user, isAdmin }) {
           <button
             onClick={async () => {
               try {
-                const res = await fetch('http://localhost:4000/pick-folder', { method: 'POST' });
+                const { data: { session } } = await supabase.auth.getSession();
+                const res = await fetch('http://localhost:4000/pick-folder', { 
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ session })
+                });
                 if (!res.ok) throw new Error('Agent down');
                 const data = await res.json();
                 alert(`✅ Carpeta vinculada con éxito en tu computadora:\n\n${data.folder}\n\nTodos los cambios se reflejarán de inmediato.`);
