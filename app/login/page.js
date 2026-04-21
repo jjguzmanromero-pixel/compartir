@@ -96,6 +96,14 @@ export default function LoginPage() {
         return
       }
     } else {
+      // PREVENCIÓN DE SPAM: Limitar a 5 equipos por usuario
+      if (devices && devices.length >= 5) {
+        await supabase.auth.signOut()
+        setError('Has alcanzado el límite máximo de 5 equipos registrados. Contacta al administrador para limpiar tus accesos.')
+        setLoading(false)
+        return
+      }
+
       // Es un equipo nuevo. Si es su primer equipo en la vida, lo auto-aprobamos.
       const isFirstDevice = !devices || devices.length === 0
       const newStatus = isFirstDevice ? 'approved' : 'pending'
