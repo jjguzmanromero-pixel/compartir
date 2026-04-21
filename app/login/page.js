@@ -15,6 +15,8 @@ export default function LoginPage() {
 
 
   async function handleResetPassword() {
+    if (!email) return alert("Por favor, ingresa tu correo electrónico primero en el campo de arriba.")
+
     // Supabase enviará un correo con un link mágico
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/actualizar-password`,
@@ -93,15 +95,31 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-[#555] mb-1.5">Contraseña</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="········"
-                required
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8e6e0] text-sm bg-[#fafaf8] focus:outline-none focus:border-[#1a1a1a] transition-colors"
-              />
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-medium text-[#555]">Contraseña</label>
+                {mode === 'login' && (
+                  <button type="button" onClick={handleResetPassword} className="text-xs text-[#888] hover:text-[#1a1a1a] transition-colors">
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type={mostrarPassword ? "text" : "password"}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="········"
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8e6e0] text-sm bg-[#fafaf8] focus:outline-none focus:border-[#1a1a1a] transition-colors pr-16"
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPassword(!mostrarPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-[#888] hover:text-[#1a1a1a] transition-colors"
+                >
+                  {mostrarPassword ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -122,23 +140,6 @@ export default function LoginPage() {
               {loading ? 'Cargando...' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}
             </button>
           </form>
-        </div>
-        // 2. Modifica tu input de contraseña para que se vea así:
-        <div className="relative">
-          <input
-            type={mostrarPassword ? "text" : "password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Tu contraseña"
-            className="w-full px-3 py-2 border rounded-xl"
-          />
-          <button
-            type="button"
-            onClick={() => setMostrarPassword(!mostrarPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"
-          >
-            {mostrarPassword ? "Ocultar" : "Mostrar"}
-          </button>
         </div>
         <p className="text-center text-xs text-[#aaa] mt-6">
           Los archivos de cada usuario son privados
