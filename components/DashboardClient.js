@@ -335,6 +335,21 @@ export default function DashboardClient({ user, isAdmin }) {
     }
   }
 
+  async function clearBlockedDevices() {
+    if (!confirm("¿Estás seguro de que quieres eliminar del registro todos los dispositivos bloqueados?")) return;
+    
+    const { error } = await supabase
+      .from('user_devices')
+      .delete()
+      .eq('status', 'blocked');
+      
+    if (!error) {
+      setDevices(devices.filter(d => d.status !== 'blocked'));
+    } else {
+      alert("Error al limpiar dispositivos: " + error.message);
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut()
     router.push('/login')
@@ -975,9 +990,20 @@ export default function DashboardClient({ user, isAdmin }) {
         {/* ADMIN — AUTORIZACIONES */}
         {tab === 'autorizaciones' && isAdmin && (
           <div>
-            <div className="mb-6">
-              <h1 className="text-xl font-semibold text-[#1a1a1a]">Autorizaciones de Equipos</h1>
-              <p className="text-sm text-[#888] mt-0.5">Controla desde qué dispositivos pueden acceder los usuarios</p>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-xl font-semibold text-[#1a1a1a]">Autorizaciones de Equipos</h1>
+                <p className="text-sm text-[#888] mt-0.5">Controla desde qué dispositivos pueden acceder los usuarios</p>
+              </div>
+              {devices.some(d => d.status === 'blocked') && (
+                <button
+                  onClick={clearBlockedDevices}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-[#e8e6e0] text-[#1a1a1a] rounded-xl text-sm font-medium hover:bg-red-50 hover:text-red-600 hover:border-red-100 active:scale-[0.98] transition-all"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                  Limpiar bloqueados
+                </button>
+              )}
             </div>
             {devices.length === 0 ? (
               <div className="text-center py-16 text-[#aaa] text-sm">No hay dispositivos registrados</div>
