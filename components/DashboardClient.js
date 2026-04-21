@@ -14,12 +14,16 @@ function formatBytes(bytes) {
 
 function encodeSafe(str) {
   if (!str) return str;
-  return encodeURIComponent(str).replace(/~/g, '~7E').replace(/%/g, '~');
+  let encoded = encodeURIComponent(str);
+  encoded = encoded.replace(/[!'()*~]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  encoded = encoded.replace(/_/g, '__');
+  return encoded.replace(/%/g, '_p');
 }
 
 function decodeSafe(str) {
   if (!str) return str;
-  try { return decodeURIComponent(str.replace(/~/g, '%')); } catch (e) { return str; }
+  let decoded = str.replace(/_([_p])/g, match => match === '__' ? '_' : '%');
+  try { return decodeURIComponent(decoded); } catch (e) { return str; }
 }
 
 function getIcon(name) {
