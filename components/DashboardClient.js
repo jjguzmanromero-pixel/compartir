@@ -31,7 +31,6 @@ export default function DashboardClient({ user, isAdmin }) {
   const [allUsers, setAllUsers] = useState([]) // solo admin
   const [trashFiles, setTrashFiles] = useState([])
   const [currentPath, setCurrentPath] = useState('') // Ruta de carpetas actual
-  const [limit, setLimit] = useState(50) // Paginación para no saturar memoria
   const [devices, setDevices] = useState([]) // solo admin
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -56,7 +55,7 @@ export default function DashboardClient({ user, isAdmin }) {
       .subscribe()
       
     return () => { supabase.removeChannel(channel) }
-  }, [limit, currentPath]) // Recargar si cambian de carpeta
+  }, [currentPath]) // Recargar si cambian de carpeta
 
   async function loadFiles() {
     setLoading(true)
@@ -67,7 +66,7 @@ export default function DashboardClient({ user, isAdmin }) {
     // Archivos del usuario actual
     const { data, error } = await supabase.storage
       .from(BUCKET)
-      .list(folderToFetch, { limit, sortBy: { column: 'created_at', order: 'desc' } })
+      .list(folderToFetch, { limit: 10000, sortBy: { column: 'created_at', order: 'desc' } })
       
     console.log('📡 Resultado de Supabase:', data, error)
 
@@ -78,7 +77,7 @@ export default function DashboardClient({ user, isAdmin }) {
     setFiles(Array.isArray(data) ? data : [])
 
     // Archivos de la Papelera
-    const { data: tData } = await supabase.storage.from(BUCKET).list(`${user.id}/.papelera`, { limit, sortBy: { column: 'created_at', order: 'desc' } })
+    const { data: tData } = await supabase.storage.from(BUCKET).list(`${user.id}/.papelera`, { limit: 10000, sortBy: { column: 'created_at', order: 'desc' } })
     setTrashFiles(Array.isArray(tData) ? tData : [])
 
     // Si es admin, cargar todos los archivos y usuarios
@@ -94,7 +93,7 @@ export default function DashboardClient({ user, isAdmin }) {
       for (const u of users || []) {
         const { data: uf, error: ufError } = await supabase.storage
           .from(BUCKET)
-          .list(u.id, { limit })
+          .list(u.id, { limit: 10000 })
           
         if (ufError) {
           console.error(`Error al listar archivos de ${u.email}:`, ufError.message)
@@ -533,7 +532,7 @@ export default function DashboardClient({ user, isAdmin }) {
             </div>
 
             {/* Lista de archivos */}
-            {loading ? (
+            {loading && files.length === 0 ? (
               <div className="text-center py-12 text-[#aaa] text-sm">Cargando...</div>
             ) : (
               <div className="space-y-1.5">
@@ -572,15 +571,6 @@ export default function DashboardClient({ user, isAdmin }) {
                     </div>
                   )
                 })}
-              </div>
-            )}
-            
-            {/* Paginación - Cargar más */}
-            {files.length >= limit && (
-              <div className="mt-6 text-center">
-                <button onClick={() => setLimit(l => l + 50)} className="px-4 py-2 bg-white border border-[#e8e6e0] rounded-xl text-sm font-medium text-[#555] hover:bg-[#f7f6f3] transition-colors">
-                  Cargar más archivos
-                </button>
               </div>
             )}
           </div>
