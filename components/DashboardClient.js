@@ -50,6 +50,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('mis-archivos') // 'mis-archivos' | 'todos' | 'usuarios'
   const [dragOver, setDragOver] = useState(false)
+  const [viewMode, setViewMode] = useState('list') // 'list' | 'grid'
   const [search, setSearch] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [expandedUser, setExpandedUser] = useState(null)
@@ -520,20 +521,30 @@ export default function DashboardClient({ user, isAdmin }) {
               </div>
             )}
 
-            {/* Migas de pan (Breadcrumbs) para navegar carpetas */}
-            <div className="flex items-center gap-2 mb-4 text-sm">
-              <button onClick={() => setCurrentPath('')} className="text-[#555] hover:text-[#1a1a1a] font-medium">Mis archivos</button>
-              {currentPath && currentPath.split('/').map((part, idx, arr) => (
-                <span key={idx} className="flex items-center gap-2">
-                  <span className="text-[#ccc]">/</span>
-                  <button 
-                    onClick={() => setCurrentPath(arr.slice(0, idx + 1).join('/'))}
-                    className="text-[#555] hover:text-[#1a1a1a] font-medium"
-                  >
-                    {decodeSafe(part)}
-                  </button>
-                </span>
-              ))}
+            {/* Migas de pan y Controles de Vista */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-2 text-sm overflow-x-auto whitespace-nowrap pb-1 sm:pb-0">
+                <button onClick={() => setCurrentPath('')} className="text-[#555] hover:text-[#1a1a1a] font-medium">Mis archivos</button>
+                {currentPath && currentPath.split('/').map((part, idx, arr) => (
+                  <span key={idx} className="flex items-center gap-2">
+                    <span className="text-[#ccc]">/</span>
+                    <button 
+                      onClick={() => setCurrentPath(arr.slice(0, idx + 1).join('/'))}
+                      className="text-[#555] hover:text-[#1a1a1a] font-medium"
+                    >
+                      {decodeSafe(part)}
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex bg-[#f7f6f3] p-1 rounded-lg border border-[#e8e6e0] shrink-0 self-start sm:self-auto">
+                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de lista">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                </button>
+                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de cuadrícula">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                </button>
+              </div>
             </div>
 
             {/* Drop zone */}
@@ -563,15 +574,15 @@ export default function DashboardClient({ user, isAdmin }) {
             {loading && files.length === 0 ? (
               <div className="text-center py-12 text-[#aaa] text-sm">Cargando...</div>
             ) : (
-              <div className="space-y-1.5">
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
                 {filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera').map(file => {
                   const isFolder = !file.metadata; // Supabase retorna nulo en metadatos para carpetas
                   return (
-                    <div key={file.id || file.name} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
-                      <span className="text-xl">{isFolder ? '📁' : getIcon(file.name)}</span>
-                      <div className="flex-1 min-w-0">
+                    <div key={file.id || file.name} className={viewMode === 'grid' ? "flex flex-col items-center text-center p-4 bg-white rounded-xl border border-[#e8e6e0] hover:border-[#ccc] transition-all group relative" : "flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group"}>
+                      <span className={viewMode === 'grid' ? "text-4xl mb-3" : "text-xl"}>{isFolder ? '📁' : getIcon(file.name)}</span>
+                      <div className={viewMode === 'grid' ? "w-full min-w-0" : "flex-1 min-w-0"}>
                         {isFolder ? (
-                          <button onClick={() => setCurrentPath(currentPath ? `${currentPath}/${file.name}` : file.name)} className="text-sm font-medium text-[#1a1a1a] truncate hover:underline">
+                          <button onClick={() => setCurrentPath(currentPath ? `${currentPath}/${file.name}` : file.name)} className={`text-sm font-medium text-[#1a1a1a] truncate hover:underline ${viewMode === 'grid' ? 'block w-full' : ''}`}>
                             {decodeSafe(file.name)}
                           </button>
                         ) : (
@@ -579,9 +590,9 @@ export default function DashboardClient({ user, isAdmin }) {
                             {decodeSafe(file.name.replace(/^\d+_/, ''))}
                           </p>
                         )}
-                        <p className="text-xs text-[#aaa]">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
+                        <p className="text-xs text-[#aaa] mt-0.5">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
                       </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className={viewMode === 'grid' ? "absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm border border-[#e8e6e0]" : "flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"}>
                         {!isFolder && (
                           <>
                             <button onClick={() => shareFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
@@ -654,29 +665,46 @@ export default function DashboardClient({ user, isAdmin }) {
         {/* ADMIN — TODOS LOS ARCHIVOS */}
         {tab === 'todos' && isAdmin && (
           <div>
-            <div className="mb-6">
-              <h1 className="text-xl font-semibold text-[#1a1a1a]">Todos los archivos</h1>
-              <p className="text-sm text-[#888] mt-0.5">{allFiles.length} archivo{allFiles.length !== 1 ? 's' : ''} en el sistema</p>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-xl font-semibold text-[#1a1a1a]">Todos los archivos</h1>
+                <p className="text-sm text-[#888] mt-0.5">{allFiles.length} archivo{allFiles.length !== 1 ? 's' : ''} en el sistema</p>
+              </div>
+              <div className="flex bg-[#f7f6f3] p-1 rounded-lg border border-[#e8e6e0]">
+                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de lista">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                </button>
+                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#1a1a1a]' : 'text-[#aaa] hover:text-[#555]'}`} title="Vista de cuadrícula">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                </button>
+              </div>
             </div>
             {allFiles.length === 0 ? (
               <div className="text-center py-16 text-[#aaa] text-sm">No hay archivos aún</div>
             ) : (
-              <div className="space-y-1.5">
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
                 {allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera').map(file => {
                   const isFolder = !file.metadata;
                   return (
-                    <div key={`${file.ownerId}_${file.name}`} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group">
-                      <span className="text-xl">{isFolder ? '📁' : getIcon(file.name)}</span>
-                      <div className="flex-1 min-w-0">
+                    <div key={`${file.ownerId}_${file.name}`} className={viewMode === 'grid' ? "flex flex-col items-center text-center p-4 bg-white rounded-xl border border-[#e8e6e0] hover:border-[#ccc] transition-all group relative" : "flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-[#e8e6e0] hover:border-[#ccc] transition-all group"}>
+                      <span className={viewMode === 'grid' ? "text-4xl mb-3" : "text-xl"}>{isFolder ? '📁' : getIcon(file.name)}</span>
+                      <div className={viewMode === 'grid' ? "w-full min-w-0" : "flex-1 min-w-0"}>
                         <p className="text-sm font-medium text-[#1a1a1a] truncate">
                           {isFolder ? decodeSafe(file.name) : decodeSafe(file.name.replace(/^\d+_/, ''))}
                         </p>
-                        <p className="text-xs text-[#aaa]">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
+                        <p className="text-xs text-[#aaa] mt-0.5">{isFolder ? 'Carpeta' : formatBytes(file.metadata?.size)}</p>
+                        {viewMode === 'grid' && (
+                          <span className="inline-block mt-2 text-[10px] bg-[#f7f6f3] border border-[#e8e6e0] px-2 py-0.5 rounded-lg text-[#666] truncate max-w-full">
+                            {file.ownerEmail?.split('@')[0]}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-xs bg-[#f7f6f3] border border-[#e8e6e0] px-2.5 py-1 rounded-lg text-[#666]">
-                        {file.ownerEmail?.split('@')[0]}
-                      </span>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {viewMode === 'list' && (
+                        <span className="text-xs bg-[#f7f6f3] border border-[#e8e6e0] px-2.5 py-1 rounded-lg text-[#666]">
+                          {file.ownerEmail?.split('@')[0]}
+                        </span>
+                      )}
+                      <div className={viewMode === 'grid' ? "absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm border border-[#e8e6e0]" : "flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"}>
                         {!isFolder && (
                           <>
                             <button onClick={() => shareFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-blue-50 text-[#bbb] hover:text-blue-500 transition-colors" title="Copiar enlace">
