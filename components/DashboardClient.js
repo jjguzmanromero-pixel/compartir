@@ -90,22 +90,39 @@ export default function DashboardClient({ user, isAdmin }) {
     const folderToFetch = currentPath ? `${user.id}/${currentPath}` : user.id
     console.log('🔍 Buscando archivos en la ruta:', folderToFetch)
 
-    // Archivos del usuario actual
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .list(folderToFetch, { limit: 10000, sortBy: { column: 'created_at', order: 'desc' } })
+    // Paginación Frontal: Archivos del usuario actual
+    let allUserFiles = [];
+    let offsetUser = 0;
+    let hasMoreUser = true;
+    while (hasMoreUser) {
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .list(folderToFetch, { limit: 1000, offset: offsetUser, sortBy: { column: 'created_at', order: 'desc' } });
+        
+      if (error) { setListError(error.message); break; }
+      if (!data || data.length === 0) break;
       
-    console.log('📡 Resultado de Supabase:', data, error)
-
-    if (error) {
-      setListError(error.message)
+      allUserFiles.push(...data);
+      if (data.length < 1000) hasMoreUser = false;
+      else offsetUser += 1000;
     }
-    
-    setFiles(Array.isArray(data) ? data : [])
+    setFiles(allUserFiles)
 
-    // Archivos de la Papelera
-    const { data: tData } = await supabase.storage.from(BUCKET).list(`${user.id}/.papelera`, { limit: 10000, sortBy: { column: 'created_at', order: 'desc' } })
-    setTrashFiles(Array.isArray(tData) ? tData : [])
+    // Paginación Frontal: Archivos de la Papelera
+    let allTrashFiles = [];
+    let offsetTrash = 0;
+    let hasMoreTrash = true;
+    while (hasMoreTrash) {
+      const { data: tData } = await supabase.storage
+        .from(BUCKET)
+        .list(`${user.id}/.papelera`, { limit: 1000, offset: offsetTrash, sortBy: { column: 'created_at', order: 'desc' } });
+        
+      if (!tData || tData.length === 0) break;
+      allTrashFiles.push(...tData);
+      if (tData.length < 1000) hasMoreTrash = false;
+      else offsetTrash += 1000;
+    }
+    setTrashFiles(allTrashFiles)
 
     // Si es admin, cargar todos los archivos y usuarios
     if (isAdmin) {
