@@ -82,6 +82,9 @@ export default function DashboardClient({ user, isAdmin }) {
       .on('broadcast', { event: 'refresh' }, () => {
         loadFiles() // Refresca la lista cuando el Agente R2 avisa de cambios
       })
+      .on('broadcast', { event: 'web_change' }, () => {
+        loadFiles() // Refresca la lista cuando otro usuario Web hace un cambio
+      })
       .subscribe()
       
     return () => { supabase.removeChannel(channel) }
@@ -135,6 +138,17 @@ export default function DashboardClient({ user, isAdmin }) {
     setLoading(false)
   }
 
+  // Avisar al Agente Local y otros clientes Web que hubo un cambio
+  function notifyWebChange() {
+    const channel = supabase.channel('temp-notify');
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({ type: 'broadcast', event: 'web_change', payload: {} });
+        setTimeout(() => supabase.removeChannel(channel), 500);
+      }
+    });
+  }
+
   // Helper para generar las rutas dependiendo de si estás en una subcarpeta
   function getFilePath(fileName, ownerId) {
     if (ownerId) return `${ownerId}/${fileName}`
@@ -164,6 +178,7 @@ export default function DashboardClient({ user, isAdmin }) {
     } catch (e) { alert("Error al crear carpeta: " + e.message); }
     
     await loadFiles()
+    notifyWebChange()
     setUploading(false)
   }
 
@@ -206,6 +221,7 @@ export default function DashboardClient({ user, isAdmin }) {
         
       }
       await loadFiles()
+      notifyWebChange()
     } catch (err) {
       setUploadError(`Ocurrió un error inesperado: ${err.message}`)
     }
@@ -234,6 +250,7 @@ export default function DashboardClient({ user, isAdmin }) {
       }
   
       await loadFiles()
+      notifyWebChange()
     } finally {
       setProcessingFiles(prev => {
         const next = new Set(prev);
@@ -251,6 +268,7 @@ export default function DashboardClient({ user, isAdmin }) {
       const originalRelativePath = fileName.replace(/___/g, '/') // Decodificar ruta original
       await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'move', path: `${basePath}/.papelera/${fileName}`, targetPath: `${basePath}/${originalRelativePath}` }) });
       await loadFiles()
+      notifyWebChange()
     } finally {
       setProcessingFiles(prev => { const next = new Set(prev); next.delete(fileKey); return next; });
     }
@@ -262,6 +280,7 @@ export default function DashboardClient({ user, isAdmin }) {
     try {
       await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [`${ownerId || user.id}/.papelera/${fileName}`] }) });
       await loadFiles()
+      notifyWebChange()
     } finally {
       setProcessingFiles(prev => { const next = new Set(prev); next.delete(fileKey); return next; });
     }
@@ -277,6 +296,7 @@ export default function DashboardClient({ user, isAdmin }) {
     
     await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths }) });
     await loadFiles()
+    notifyWebChange()
   }
 
   async function shareFile(fileName, ownerId) {
