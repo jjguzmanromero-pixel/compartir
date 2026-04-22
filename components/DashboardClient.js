@@ -8,10 +8,12 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 const BUCKET = 'user-files'
 
 function formatBytes(bytes) {
-  if (!bytes) return '—'
+  if (bytes === 0) return '0 B'
+  if (!bytes || isNaN(bytes)) return '—'
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
 }
 
 function encodeSafe(str) {
@@ -151,12 +153,16 @@ export default function DashboardClient({ user, isAdmin }) {
     const folderToFetch = currentPath ? `${user.id}/${currentPath}` : user.id
     console.log('🔍 Buscando archivos en la ruta:', folderToFetch)
 
+    let loadedFilesSize = 0;
+    let loadedTrashSize = 0;
+
     try {
       // Llamada segura a la API de R2 para los archivos del usuario
       const resUser = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: folderToFetch }) });
       const jsonUser = await resUser.json();
       if (!resUser.ok) throw new Error(jsonUser.error);
       setFiles(jsonUser.data || []);
+      loadedFilesSize = (jsonUser.data || []).reduce((acc, f) => acc + (f.metadata?.size || 0), 0);
     } catch (e) {
       setListError(e.message);
     }
@@ -165,21 +171,35 @@ export default function DashboardClient({ user, isAdmin }) {
       // Llamada segura a la API de R2 para la papelera
       const resTrash = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: `${user.id}/.papelera` }) });
       const jsonTrash = await resTrash.json();
-      if (resTrash.ok) setTrashFiles(jsonTrash.data || []);
+      if (resTrash.ok) {
+        setTrashFiles(jsonTrash.data || []);
+        loadedTrashSize = (jsonTrash.data || []).reduce((acc, f) => acc + (f.metadata?.size || 0), 0);
+      }
     } catch (e) { console.error('Error al cargar papelera', e); }
 
+    let userMetric = 0;
     try {
       const { data: metrics } = await supabase.from('storage_metrics').select('total_bytes').eq('user_id', user.id).single();
-      if (metrics) setTotalUsedBytes(Number(metrics.total_bytes));
+      if (metrics) userMetric = Number(metrics.total_bytes);
     } catch (e) { console.error('Error al cargar métricas', e); }
+
+    // Fallback si la tabla es nueva (tiene 0) pero hay archivos existentes
+    if (!isAdmin) {
+      if (userMetric > 0) {
+        setTotalUsedBytes(userMetric);
+      } else if (!currentPath) {
+        setTotalUsedBytes(loadedFilesSize + loadedTrashSize);
+      }
+    }
 
     // Si es admin, cargar todos los archivos y usuarios
     if (isAdmin) {
+      let globalDbSum = 0;
       try {
         const { data: allMetrics } = await supabase.from('storage_metrics').select('total_bytes');
         if (allMetrics) {
-          const sum = allMetrics.reduce((acc, m) => acc + Number(m.total_bytes), 0);
-          setTotalUsedBytes(sum); // El Admin ve la sumatoria de toda la plataforma
+          globalDbSum = allMetrics.reduce((acc, m) => acc + Number(m.total_bytes), 0);
+          setTotalUsedBytes(globalDbSum); // El Admin ve la sumatoria de toda la plataforma
         }
       } catch (e) { console.error('Error al cargar métricas globales', e); }
 
@@ -200,7 +220,13 @@ export default function DashboardClient({ user, isAdmin }) {
           return [];
         });
         const results = await Promise.all(fetchPromises);
-        setAllFiles(results.flat());
+        const flatFiles = results.flat();
+        setAllFiles(flatFiles);
+
+        // Fallback global por si las tablas de métricas están en 0 al inicio
+        if (globalDbSum === 0) {
+          setTotalUsedBytes(flatFiles.reduce((acc, f) => acc + (f.metadata?.size || 0), 0));
+        }
       }
     }
     setLoading(false)
