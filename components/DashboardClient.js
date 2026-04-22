@@ -117,6 +117,7 @@ export default function DashboardClient({ user, isAdmin }) {
   const [listError, setListError] = useState('')
   const [processingFiles, setProcessingFiles] = useState(new Set()) // Rastrea archivos en operación
   const [uploadingFiles, setUploadingFiles] = useState([]) // Rastrea el progreso de subidas
+  const [totalUsedBytes, setTotalUsedBytes] = useState(0) // Métrica de almacenamiento
   const fileRef = useRef()
   const router = useRouter()
   const supabase = createClient()
@@ -167,8 +168,21 @@ export default function DashboardClient({ user, isAdmin }) {
       if (resTrash.ok) setTrashFiles(jsonTrash.data || []);
     } catch (e) { console.error('Error al cargar papelera', e); }
 
+    try {
+      const { data: metrics } = await supabase.from('storage_metrics').select('total_bytes').eq('user_id', user.id).single();
+      if (metrics) setTotalUsedBytes(Number(metrics.total_bytes));
+    } catch (e) { console.error('Error al cargar métricas', e); }
+
     // Si es admin, cargar todos los archivos y usuarios
     if (isAdmin) {
+      try {
+        const { data: allMetrics } = await supabase.from('storage_metrics').select('total_bytes');
+        if (allMetrics) {
+          const sum = allMetrics.reduce((acc, m) => acc + Number(m.total_bytes), 0);
+          setTotalUsedBytes(sum); // El Admin ve la sumatoria de toda la plataforma
+        }
+      } catch (e) { console.error('Error al cargar métricas globales', e); }
+
       const { data: users } = await supabase.from('profiles').select('*')
       setAllUsers(users || [])
 
@@ -260,6 +274,15 @@ export default function DashboardClient({ user, isAdmin }) {
         const path = `${folderPath}/${safeName}`
         const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
 
+        // --- OBTENER TAMAÑO ANTERIOR ---
+        let oldSize = 0;
+        try {
+          const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: folderPath }) });
+          const listJson = await listRes.json();
+          const existingFile = listJson.data?.find(f => f.name === safeName);
+          if (existingFile && existingFile.metadata) oldSize = existingFile.metadata.size;
+        } catch(e) {}
+
         if (file.size > CHUNK_SIZE) {
           // --- LÓGICA MULTIPARTE ---
           const createRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'createMultipartUpload', path, contentType: file.type || 'application/octet-stream' }) });
@@ -290,6 +313,7 @@ export default function DashboardClient({ user, isAdmin }) {
             }
 
             await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'completeMultipartUpload', path, uploadId, parts: uploadedParts }) });
+            await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
           } catch (err) {
             await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'abortMultipartUpload', path, uploadId }) });
             throw err;
@@ -303,6 +327,7 @@ export default function DashboardClient({ user, isAdmin }) {
           const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
           if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
 
+          await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
           setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: file.size } : f));
         }
       } catch (err) {
@@ -371,7 +396,11 @@ export default function DashboardClient({ user, isAdmin }) {
     const fileKey = `${ownerId || user.id}/${fileName}`;
     setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
     try {
+      const fileObj = trashFiles.find(f => f.name === fileName) || allFiles.find(f => f.name === fileName);
+      const freedBytes = fileObj?.metadata?.size || 0;
+
       await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [`${ownerId || user.id}/.papelera/${fileName}`] }) });
+      await supabase.rpc('increment_storage', { user_id_param: ownerId || user.id, bytes_to_add: -freedBytes });
       await loadFiles()
       notifyWebChange()
     } finally {
@@ -385,9 +414,11 @@ export default function DashboardClient({ user, isAdmin }) {
     if (!confirm("¿Estás seguro de que quieres vaciar la papelera? Esta acción eliminará los archivos permanentemente y no se puede deshacer.")) return
     
     setLoading(true)
-    const paths = trashFiles.map(f => `${user.id}/.papelera/${f.name}`)
+    const paths = validFiles.map(f => `${user.id}/.papelera/${f.name}`)
+    const freedBytes = validFiles.reduce((acc, f) => acc + (f.metadata?.size || 0), 0)
     
     await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths }) });
+    await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: -freedBytes });
     await loadFiles()
     notifyWebChange()
   }
@@ -654,8 +685,23 @@ export default function DashboardClient({ user, isAdmin }) {
           </button>
         </nav>
 
+        {/* Métricas de Almacenamiento */}
+        <div className="mt-auto p-4 border-t border-[#e8e6e0] bg-[#fafaf8]">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs font-medium text-[#1a1a1a]">{isAdmin ? 'Uso del Sistema' : 'Almacenamiento'}</span>
+            <span className="text-xs font-semibold text-[#555]">{formatBytes(totalUsedBytes)}</span>
+          </div>
+          <div className="w-full bg-[#e8e6e0] rounded-full h-1.5 mb-1 overflow-hidden">
+            <div 
+              className="bg-[#1a1a1a] h-full rounded-full transition-all duration-500" 
+              style={{ width: `${Math.min((totalUsedBytes / (1024 * 1024 * 1024)) * 100, 100)}%` }}
+            ></div>
+          </div>
+          <p className="text-[10px] text-[#888]">{isAdmin ? 'Espacio total utilizado' : 'Usado de tu plan (1 GB)'}</p>
+        </div>
+
         {/* Acerca de */}
-        <div className="mt-auto p-3">
+        <div className="p-3 border-t border-[#e8e6e0]">
           <button onClick={() => setShowAboutModal(true)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#888] hover:bg-[#f7f6f3] hover:text-[#1a1a1a] transition-all">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
             Acerca de Núcleo
