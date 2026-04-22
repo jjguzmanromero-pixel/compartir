@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabase'
 import { Loader2 } from 'lucide-react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 const BUCKET = 'user-files'
 
@@ -38,6 +39,62 @@ function getIcon(name) {
     js: '💻', ts: '💻', py: '💻', html: '💻', css: '💻',
   }
   return icons[ext] || ''
+}
+
+// ====================================================================
+// COMPONENTE DE VIRTUALIZACIÓN (Dibuja solo lo que ves en pantalla)
+// ====================================================================
+function VirtualFileList({ items, viewMode, renderItem }) {
+  const [cols, setCols] = useState(1)
+  const parentRef = useRef(null)
+
+  // Calcular cuántas columnas caben en la pantalla para la Cuadrícula
+  useEffect(() => {
+    const updateCols = () => {
+      if (viewMode === 'list') setCols(1)
+      else if (window.innerWidth >= 1024) setCols(5)
+      else if (window.innerWidth >= 768) setCols(4)
+      else if (window.innerWidth >= 640) setCols(3)
+      else setCols(2)
+    }
+    updateCols()
+    window.addEventListener('resize', updateCols)
+    return () => window.removeEventListener('resize', updateCols)
+  }, [viewMode])
+
+  // Agrupar los archivos en "filas" dependiendo de las columnas
+  const chunkedList = []
+  for (let i = 0; i < items.length; i += cols) {
+    chunkedList.push(items.slice(i, i + cols))
+  }
+
+  const virtualizer = useVirtualizer({
+    count: chunkedList.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => viewMode === 'grid' ? 160 : 64, // Altura estimada (Grid vs List)
+    overscan: 2, // Cuántas filas dibujar fuera de la pantalla por si scroleas rápido
+  })
+
+  if (items.length === 0) return null;
+
+  return (
+    <div ref={parentRef} className="h-[calc(100vh-260px)] overflow-y-auto pr-2">
+      <div style={{ height: `${virtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const rowItems = chunkedList[virtualRow.index]
+          return (
+            <div
+              key={virtualRow.index}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: `${virtualRow.size}px`, transform: `translateY(${virtualRow.start}px)` }}
+              className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-4" : "flex flex-col gap-1.5 pb-1.5"}
+            >
+              {rowItems.map(file => renderItem(file))}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export default function DashboardClient({ user, isAdmin }) {
@@ -746,9 +803,11 @@ export default function DashboardClient({ user, isAdmin }) {
             {loading && files.length === 0 ? (
               <div className="text-center py-12 text-[#aaa] text-sm">Cargando...</div>
             ) : (
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
-                {sortFilesList(filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')).map(file => {
-                  const isFolder = !file.metadata; // Supabase retorna nulo en metadatos para carpetas
+              <VirtualFileList
+                items={sortFilesList(filteredFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera'))}
+                viewMode={viewMode}
+                renderItem={(file) => {
+                  const isFolder = !file.metadata;
                   const fileKey = `${user.id}/${file.name}`;
                   const isProcessing = processingFiles.has(fileKey);
                   return (
@@ -791,8 +850,8 @@ export default function DashboardClient({ user, isAdmin }) {
                       </div>
                     </div>
                   )
-                })}
-              </div>
+                }}
+              />
             )}
           </div>
         )}
@@ -819,8 +878,10 @@ export default function DashboardClient({ user, isAdmin }) {
             {trashFiles.length === 0 ? (
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
             ) : (
-              <div className="space-y-1.5">
-                {sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder')).map(file => {
+              <VirtualFileList
+                items={sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder'))}
+                viewMode="list"
+                renderItem={(file) => {
                   const fileKey = `${user.id}/${file.name}`;
                   const isProcessing = processingFiles.has(fileKey);
                   return (
@@ -851,8 +912,8 @@ export default function DashboardClient({ user, isAdmin }) {
                       </div>
                     </div>
                   );
-                })}
-              </div>
+                }}
+              />
             )}
           </div>
         )}
@@ -895,8 +956,10 @@ export default function DashboardClient({ user, isAdmin }) {
             {allFiles.length === 0 ? (
               <div className="text-center py-16 text-[#aaa] text-sm">No hay archivos aún</div>
             ) : (
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" : "space-y-1.5"}>
-                {sortFilesList(allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera')).map(file => {
+              <VirtualFileList
+                items={sortFilesList(allFiles.filter(f => f.name !== '.emptyFolderPlaceholder' && f.name !== '.papelera'))}
+                viewMode={viewMode}
+                renderItem={(file) => {
                   const isFolder = !file.metadata;
                   const fileKey = `${file.ownerId}/${file.name}`;
                   const isProcessing = processingFiles.has(fileKey);
@@ -944,8 +1007,8 @@ export default function DashboardClient({ user, isAdmin }) {
                       </div>
                     </div>
                   )
-                })}
-              </div>
+                }}
+              />
             )}
           </div>
         )}
