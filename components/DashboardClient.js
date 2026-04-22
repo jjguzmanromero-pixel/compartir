@@ -226,7 +226,7 @@ export default function DashboardClient({ user, isAdmin }) {
               const uploadPartRes = await fetch(partSignedUrl, { method: 'PUT', body: chunk });
               if (!uploadPartRes.ok) throw new Error(`Falló la subida del fragmento ${partNumber}`);
               
-              const eTag = uploadPartRes.headers.get('etag');
+              const eTag = uploadPartRes.headers.get('etag')?.replace(/"/g, '');
               uploadedParts.push({ PartNumber: partNumber, ETag: eTag });
 
               setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: end } : f));
