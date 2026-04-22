@@ -140,13 +140,7 @@ export default function DashboardClient({ user, isAdmin }) {
 
   // Avisar al Agente Local y otros clientes Web que hubo un cambio
   function notifyWebChange() {
-    const channel = supabase.channel('temp-notify');
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({ type: 'broadcast', event: 'web_change', payload: {} });
-        setTimeout(() => supabase.removeChannel(channel), 500);
-      }
-    });
+    supabase.channel('realtime-dashboard').send({ type: 'broadcast', event: 'web_change', payload: {} });
   }
 
   // Helper para generar las rutas dependiendo de si estás en una subcarpeta
