@@ -76,9 +76,6 @@ export default function DashboardClient({ user, isAdmin }) {
     
     // Realtime: Reaccionar al instante si el Agente Local u otro usuario sube/borra archivos
     const channel = supabase.channel('realtime-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'storage', table: 'objects' }, () => {
-        loadFiles() // Refresca la lista visible sin importar en qué pestaña estés
-      })
       .on('broadcast', { event: 'refresh' }, () => {
         loadFiles() // Refresca la lista cuando el Agente R2 avisa de cambios
       })
