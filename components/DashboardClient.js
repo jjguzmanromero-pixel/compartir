@@ -55,11 +55,11 @@ export default function DashboardClient({ user, isAdmin }) {
   const [sortBy, setSortBy] = useState('created_at') // 'created_at' | 'name' | 'size'
   const [sortOrder, setSortOrder] = useState('desc') // 'asc' | 'desc'
   const [search, setSearch] = useState('')
-  const [uploadError, setUploadError] = useState('')
   const [expandedUser, setExpandedUser] = useState(null)
   const [showAboutModal, setShowAboutModal] = useState(false)
   const [listError, setListError] = useState('')
   const [processingFiles, setProcessingFiles] = useState(new Set()) // Rastrea archivos en operación
+  const [uploadingFiles, setUploadingFiles] = useState([]) // Rastrea el progreso de subidas
   const fileRef = useRef()
   const router = useRouter()
   const supabase = createClient()
@@ -181,42 +181,87 @@ export default function DashboardClient({ user, isAdmin }) {
 
     // Limpiar el input para permitir seleccionar el mismo archivo de nuevo
     if (fileRef.current) fileRef.current.value = ''
-
+    
+    const initialUploads = filesArray.map(file => ({
+      name: file.name,
+      progress: 0,
+      totalSize: file.size,
+      error: null,
+    }));
+    setUploadingFiles(initialUploads);
     setUploading(true)
-    setUploadError('')
 
-    try {
-      for (const file of filesArray) {
+    const uploadPromises = filesArray.map(async (file) => {
+      try {
         // SEGURIDAD: Evitar subir archivos con el nombre reservado de la papelera
         if (file.name === '.papelera') {
-          setUploadError('El nombre ".papelera" es un directorio reservado. Archivo ignorado.');
-          continue;
+          throw new Error('Nombre de archivo reservado');
         }
 
         const safeName = encodeSafe(file.name)
         const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
         const path = `${folderPath}/${safeName}`
-        
-        // 1. Pedir URL Pre-firmada a nuestro backend de Next.js
-        const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: file.type || 'application/octet-stream' }) });
-        const { signedUrl, error } = await presignRes.json();
-        if (error) {
-          setUploadError(`Error al subir "${file.name}": ${error.message}`)
-          setUploading(false)
-          return
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+
+        if (file.size > CHUNK_SIZE) {
+          // --- LÓGICA MULTIPARTE ---
+          const createRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'createMultipartUpload', path, contentType: file.type || 'application/octet-stream' }) });
+          const { uploadId } = await createRes.json();
+          if (!uploadId) throw new Error('No se pudo iniciar la subida multiparte.');
+
+          const numParts = Math.ceil(file.size / CHUNK_SIZE);
+          const uploadedParts = [];
+
+          try {
+            for (let i = 0; i < numParts; i++) {
+              const partNumber = i + 1;
+              const start = i * CHUNK_SIZE;
+              const end = Math.min(start + CHUNK_SIZE, file.size);
+              const chunk = file.slice(start, end);
+
+              const partPresignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'uploadPart', path, uploadId, partNumber }) });
+              const { signedUrl: partSignedUrl } = await partPresignRes.json();
+              if (!partSignedUrl) throw new Error(`No se pudo obtener URL para el fragmento ${partNumber}`);
+
+              const uploadPartRes = await fetch(partSignedUrl, { method: 'PUT', body: chunk });
+              if (!uploadPartRes.ok) throw new Error(`Falló la subida del fragmento ${partNumber}`);
+              
+              const eTag = uploadPartRes.headers.get('etag');
+              uploadedParts.push({ PartNumber: partNumber, ETag: eTag });
+
+              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: end } : f));
+            }
+
+            await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'completeMultipartUpload', path, uploadId, parts: uploadedParts }) });
+          } catch (err) {
+            await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'abortMultipartUpload', path, uploadId }) });
+            throw err;
+          }
+        } else {
+          // --- LÓGICA DE SUBIDA SIMPLE ---
+          const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: file.type || 'application/octet-stream' }) });
+          const { signedUrl, error } = await presignRes.json();
+          if (error) throw new Error(error.message);
+          
+          const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
+          if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
+
+          setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: file.size } : f));
         }
-        
-        // 2. Subir el archivo directamente a Cloudflare R2
-        const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
-        if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
-        
+      } catch (err) {
+        setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, error: err.message } : f));
       }
-      await loadFiles()
-      notifyWebChange()
-    } catch (err) {
-      setUploadError(`Ocurrió un error inesperado: ${err.message}`)
-    }
-    setUploading(false)
+    });
+
+    await Promise.all(uploadPromises);
+
+    await loadFiles();
+    notifyWebChange();
+    
+    setTimeout(() => {
+      setUploading(false);
+      setUploadingFiles([]);
+    }, 5000); // Mantener la caja de progreso visible por 5 segundos
   }
 
   async function deleteFile(fileName, ownerId) {
@@ -602,28 +647,12 @@ export default function DashboardClient({ user, isAdmin }) {
                   disabled={uploading}
                   className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] text-white rounded-xl text-sm font-medium hover:bg-[#333] active:scale-[0.98] transition-all disabled:opacity-50"
                 >
-                  {uploading ? (
-                    <>
-                      <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                      Subiendo...
-                    </>
-                  ) : (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                      Subir archivo
-                    </>
-                  )}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Subir archivo
                 </button>
               </div>
               <input ref={fileRef} type="file" multiple className="hidden" onChange={e => uploadFiles(e.target.files)} />
             </div>
-
-            {/* Error de upload */}
-            {uploadError && (
-              <div className="text-xs px-3 py-2.5 rounded-xl bg-red-50 text-red-600 border border-red-100 mb-4">
-                ✗ {uploadError}
-              </div>
-            )}
 
             {/* Error de listado de archivos */}
             {listError && (
@@ -1150,6 +1179,40 @@ export default function DashboardClient({ user, isAdmin }) {
         </div>
       )}
 
+      {/* Caja de Progreso de Subida */}
+      {uploading && uploadingFiles.length > 0 && (
+        <div className="fixed bottom-8 right-8 w-80 bg-white rounded-2xl shadow-2xl border border-[#e8e6e0] p-4 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <h3 className="text-sm font-medium text-[#1a1a1a] mb-3">Subiendo {uploadingFiles.length} archivo{uploadingFiles.length > 1 ? 's' : ''}</h3>
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+                {uploadingFiles.map((file) => {
+                    const percentage = file.totalSize > 0 ? Math.round((file.progress / file.totalSize) * 100) : 0;
+                    const isComplete = percentage >= 100 && !file.error;
+                    const hasError = !!file.error;
+                    return (
+                        <div key={file.name}>
+                            <div className="flex justify-between items-center mb-1">
+                                <p className="text-xs text-[#555] truncate max-w-[180px]">{file.name}</p>
+                                {hasError ? (
+                                    <span className="text-xs font-medium text-red-500">Error</span>
+                                ) : (
+                                    <p className="text-xs font-medium text-[#1a1a1a]">{isComplete ? '✓' : `${percentage}%`}</p>
+                                )}
+                            </div>
+                            <div className="w-full bg-[#f0ede8] rounded-full h-1.5">
+                                <div 
+                                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                                        hasError ? 'bg-red-500' : isComplete ? 'bg-green-500' : 'bg-[#1a1a1a]'
+                                    }`}
+                                    style={{ width: `${isComplete || hasError ? 100 : percentage}%` }}
+                                ></div>
+                            </div>
+                            {hasError && <p className="text-xs text-red-500 mt-1 truncate" title={file.error}>{file.error}</p>}
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+      )}
     </div>
   )
 }
