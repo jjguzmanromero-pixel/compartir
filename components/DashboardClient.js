@@ -18,16 +18,19 @@ function formatBytes(bytes) {
 
 function encodeSafe(str) {
   if (!str) return str;
-  let encoded = encodeURIComponent(str);
-  encoded = encoded.replace(/[!'()*~]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
-  encoded = encoded.replace(/_/g, '__');
-  return encoded.replace(/%/g, '_p');
+  // El SDK de AWS S3 y Cloudflare R2 ya soportan UTF-8 de forma nativa.
+  // Retornamos el string original para mantener acentos, eñes y espacios intactos.
+  return str;
 }
 
 function decodeSafe(str) {
   if (!str) return str;
-  let decoded = str.replace(/_([_p])/g, match => match === '__' ? '_' : '%');
-  try { return decodeURIComponent(decoded); } catch (e) { return str; }
+  // Mantenemos la decodificación SOLO para archivos antiguos que tengan el formato heredado (_p)
+  if (str.includes('_p') || str.includes('__')) {
+    let decoded = str.replace(/_([_p])/g, match => match === '__' ? '_' : '%');
+    try { return decodeURIComponent(decoded); } catch (e) { return str; }
+  }
+  return str;
 }
 
 function getIcon(name) {
@@ -258,7 +261,7 @@ export default function DashboardClient({ user, isAdmin }) {
     
     setUploading(true)
     try {
-      const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path: `${folderPath}/.emptyFolderPlaceholder`, contentType: 'application/octet-stream' }) });
+      const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path: `${folderPath}/.emptyFolderPlaceholder`, contentType: 'application/octet-stream; charset=utf-8' }) });
       const { signedUrl } = await presignRes.json();
       if (signedUrl) {
         await fetch(signedUrl, { method: 'PUT', body: new Blob(['']) });
@@ -300,6 +303,9 @@ export default function DashboardClient({ user, isAdmin }) {
         const path = `${folderPath}/${safeName}`
         const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
 
+        let cType = file.type || 'application/octet-stream';
+        if (!cType.includes('charset=')) cType += '; charset=utf-8';
+
         // --- OBTENER TAMAÑO ANTERIOR ---
         let oldSize = 0;
         try {
@@ -311,7 +317,7 @@ export default function DashboardClient({ user, isAdmin }) {
 
         if (file.size > CHUNK_SIZE) {
           // --- LÓGICA MULTIPARTE ---
-          const createRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'createMultipartUpload', path, contentType: file.type || 'application/octet-stream' }) });
+          const createRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'createMultipartUpload', path, contentType: cType }) });
           const { uploadId } = await createRes.json();
           if (!uploadId) throw new Error('No se pudo iniciar la subida multiparte.');
 
@@ -346,11 +352,11 @@ export default function DashboardClient({ user, isAdmin }) {
           }
         } else {
           // --- LÓGICA DE SUBIDA SIMPLE ---
-          const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: file.type || 'application/octet-stream' }) });
+          const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: cType }) });
           const { signedUrl, error } = await presignRes.json();
           if (error) throw new Error(error.message);
           
-          const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
+          const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': cType } });
           if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
 
           await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
