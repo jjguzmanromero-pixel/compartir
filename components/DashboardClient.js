@@ -132,7 +132,30 @@ export default function DashboardClient({ user, isAdmin }) {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
     if (tabParam) setTab(tabParam);
+
+    if (urlParams.get('autoConnect') === 'true') {
+      // Dar tiempo a cargar la sesión web por si acabas de iniciar sesión
+      setTimeout(() => linkPC(true), 1500);
+      // Limpiar la URL para evitar reconexiones accidentales al recargar la página
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
+
+  async function linkPC(isAuto = false) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('http://localhost:4000/pick-folder', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session, isAuto })
+      });
+      if (!res.ok) throw new Error('Agent down');
+    } catch (err) {
+      if (!isAuto) {
+        alert('❌ No se pudo conectar con el Agente Local.\n\nAsegúrate de tener abierta tu terminal corriendo el comando:\nnode sync-agent.js');
+      }
+    }
+  }
 
   useEffect(() => { 
     loadFiles() 
@@ -693,21 +716,7 @@ export default function DashboardClient({ user, isAdmin }) {
             <span className="text-[10px] font-medium text-[#bbb] uppercase tracking-widest">Sincronización</span>
           </div>
           <button
-            onClick={async () => {
-              try {
-                const { data: { session } } = await supabase.auth.getSession();
-                const res = await fetch('http://localhost:4000/pick-folder', { 
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ session })
-                });
-                if (!res.ok) throw new Error('Agent down');
-                const data = await res.json();
-                alert(`✅ Carpeta vinculada con éxito en tu computadora:\n\n${data.folder}\n\nTodos los cambios se reflejarán de inmediato.`);
-              } catch (err) {
-                alert('❌ No se pudo conectar con el Agente Local.\n\nAsegúrate de tener abierta tu terminal corriendo el comando:\nnode sync-agent.js');
-              }
-            }}
+            onClick={() => linkPC(false)}
             className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all"
           >
             <div className="flex items-center gap-2.5">
