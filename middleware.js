@@ -11,11 +11,11 @@ const redis = process.env.UPSTASH_REDIS_REST_URL
     })
   : null;
 
-// 2. Configurar el limitador: 50 peticiones por cada 1 minuto
+// 2. Configurar el limitador: 500 peticiones por cada 1 minuto (Aumentado para permitir operaciones masivas como borrado de carpetas)
 const ratelimit = redis
   ? new Ratelimit({
       redis: redis,
-      limiter: Ratelimit.slidingWindow(50, '1 m'),
+      limiter: Ratelimit.slidingWindow(500, '1 m'),
       analytics: true,
     })
   : null;
