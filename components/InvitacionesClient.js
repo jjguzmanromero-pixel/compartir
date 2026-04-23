@@ -105,9 +105,12 @@ export default function InvitacionesClient({ user, invitations: initialInvitatio
                 const res = await fetch('http://localhost:4000/pick-folder', { 
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ session
+                  body: JSON.stringify({ session, isAuto: false })
+                });
                 if (!res.ok) throw new Error('Agent down');
               } catch (err) {
+                alert('❌ No se pudo conectar con el Agente Local.\n\nAsegúrate de tener abierta tu terminal corriendo el comando:\nnode sync-agent.js');
+              }
             }}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm mb-1 text-[#555] hover:bg-[#f7f6f3] transition-all"
           >
