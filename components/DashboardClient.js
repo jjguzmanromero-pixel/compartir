@@ -745,6 +745,9 @@ export default function DashboardClient({ user, isAdmin }) {
   }
 
   async function logout() {
+    try {
+      await fetch('http://localhost:4000/logout', { method: 'POST' });
+    } catch (e) {} // Ignoramos si el agente local está apagado
     await supabase.auth.signOut()
     router.push('/login')
   }
