@@ -466,6 +466,9 @@ export default function DashboardClient({ user, isAdmin }) {
           setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, error: err.message } : f));
         }
       }));
+      
+      // Breve pausa entre lotes masivos para respetar el Rate Limit de 500 req/minuto
+      if (i + CONCURRENCY < filesArray.length) await new Promise(res => setTimeout(res, 1200));
     }
 
     await loadFiles();
@@ -533,6 +536,9 @@ export default function DashboardClient({ user, isAdmin }) {
             }).catch(() => failedPaths.push(f.fullPath));
           });
           await Promise.all(movePromises);
+          
+          // Breve pausa para no saturar la API al borrar miles de archivos de una carpeta
+          if (i + chunkSize < rawFiles.length) await new Promise(res => setTimeout(res, 1200));
         }
 
         if (failedPaths.length > 0) {
