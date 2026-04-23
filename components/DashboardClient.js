@@ -334,7 +334,11 @@ export default function DashboardClient({ user, isAdmin }) {
         try {
           const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: folderPath }) });
           const listJson = await listRes.json();
-          const existingFile = listJson.data?.find(f => f.name === safeName);
+          const existingFile = listJson.data?.find(f => {
+            const cleanName = f.name.replace(/^\d+_/, '');
+            const decodedClean = decodeSafe(cleanName);
+            return f.name === safeName || cleanName === safeName || decodedClean === safeName || f.name === file.name;
+          });
           if (existingFile && existingFile.metadata) oldSize = existingFile.metadata.size;
         } catch(e) {}
 
@@ -419,7 +423,19 @@ export default function DashboardClient({ user, isAdmin }) {
       if (data.error) {
         console.error("Error al mover a papelera:", data.error);
         // Fallback a borrado definitivo
+        let freedBytes = 0;
+        try {
+          const dirPath = ownerId ? ownerId : (currentPath ? `${user.id}/${currentPath}` : user.id);
+          const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: dirPath }) });
+          const listJson = await listRes.json();
+          const fileObj = listJson.data?.find(f => f.name === fileName);
+          if (fileObj && fileObj.metadata) freedBytes = fileObj.metadata.size;
+        } catch(e) {}
+
         await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [path] }) });
+        if (freedBytes > 0) {
+          await supabase.rpc('increment_storage', { user_id_param: ownerId || user.id, bytes_to_add: -freedBytes });
+        }
       }
   
       await loadFiles()
@@ -451,11 +467,19 @@ export default function DashboardClient({ user, isAdmin }) {
     const fileKey = `${ownerId || user.id}/${fileName}`;
     setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
     try {
-      const fileObj = trashFiles.find(f => f.name === fileName) || allFiles.find(f => f.name === fileName);
-      const freedBytes = fileObj?.metadata?.size || 0;
+      let freedBytes = 0;
+      try {
+        const targetPath = `${ownerId || user.id}/.papelera`;
+        const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: targetPath }) });
+        const json = await res.json();
+        const fileObj = json.data?.find(f => f.name === fileName);
+        if (fileObj && fileObj.metadata) freedBytes = fileObj.metadata.size;
+      } catch (e) {}
 
       await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [`${ownerId || user.id}/.papelera/${fileName}`] }) });
-      await supabase.rpc('increment_storage', { user_id_param: ownerId || user.id, bytes_to_add: -freedBytes });
+      if (freedBytes > 0) {
+        await supabase.rpc('increment_storage', { user_id_param: ownerId || user.id, bytes_to_add: -freedBytes });
+      }
       await loadFiles()
       notifyWebChange()
     } finally {
@@ -470,10 +494,21 @@ export default function DashboardClient({ user, isAdmin }) {
     
     setLoading(true)
     const paths = validFiles.map(f => `${user.id}/.papelera/${f.name}`)
-    const freedBytes = validFiles.reduce((acc, f) => acc + (f.metadata?.size || 0), 0)
+    
+    let freedBytes = 0;
+    try {
+      const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: `${user.id}/.papelera` }) });
+      const listJson = await listRes.json();
+      const validTrash = (listJson.data || []).filter(f => f.name !== '.emptyFolderPlaceholder');
+      freedBytes = validTrash.reduce((acc, f) => acc + (f.metadata?.size || 0), 0);
+    } catch(e) {
+      freedBytes = validFiles.reduce((acc, f) => acc + (f.metadata?.size || 0), 0);
+    }
     
     await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths }) });
-    await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: -freedBytes });
+    if (freedBytes > 0) {
+      await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: -freedBytes });
+    }
     await loadFiles()
     notifyWebChange()
   }
