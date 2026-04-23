@@ -19,10 +19,9 @@ export async function POST(req) {
     const authHeader = req.headers.get('authorization');
     
     if (authHeader) {
-      supabaseQuery = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } }
-      });
-      const { data } = await supabaseQuery.auth.getUser();
+      const token = authHeader.replace('Bearer ', '');
+      supabaseQuery = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+      const { data } = await supabaseQuery.auth.getUser(token);
       user = data?.user;
     } else {
       supabaseQuery = await createServerSupabaseClient();
@@ -36,8 +35,9 @@ export async function POST(req) {
     // SEGURIDAD: Replicar el RLS de Supabase. Solo tú o un Admin pueden tocar esta carpeta.
     const { data: profile } = await supabaseQuery.from('profiles').select('role').eq('id', user.id).single();
     const isAdmin = profile?.role === 'admin';
+    const isAllowed = (p) => p === String(user.id) || p.startsWith(`${user.id}/`) || isAdmin;
     
-    if (path && !path.startsWith(`${user.id}/`) && !isAdmin) {
+    if (path && !isAllowed(path)) {
       return NextResponse.json({ error: 'Acceso denegado a esta ruta' }, { status: 403 });
     }
 
