@@ -21,21 +21,6 @@ const ratelimit = redis
   : null;
 
 export async function middleware(request) {
-  // --- LÓGICA DE RATE LIMITING (Protección de API) ---
-  if (request.nextUrl.pathname.startsWith('/api/')) {
-    if (ratelimit) {
-      const ip = request.ip ?? request.headers.get('x-forwarded-for') ?? '127.0.0.1';
-      const { success, limit, reset, remaining } = await ratelimit.limit(`ratelimit_${ip}`);
-      
-      if (!success) {
-        return NextResponse.json(
-          { error: 'Demasiadas peticiones detectadas. Por favor, espera un minuto por seguridad.' },
-          { status: 429, headers: { 'X-RateLimit-Limit': limit.toString(), 'X-RateLimit-Remaining': remaining.toString(), 'X-RateLimit-Reset': reset.toString() } }
-        );
-      }
-    }
-  }
-
   let response = NextResponse.next({ request: { headers: request.headers } })
 
   const supabase = createServerClient(
@@ -59,6 +44,23 @@ export async function middleware(request) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
+
+  // --- LÓGICA DE RATE LIMITING (Protección de API) ---
+  // Solo aplicamos el límite estricto a visitantes NO autenticados.
+  // Si tienen sesión válida (equipo autorizado), tienen vía libre para sincronizar.
+  if (!user && request.nextUrl.pathname.startsWith('/api/')) {
+    if (ratelimit) {
+      const ip = request.ip ?? request.headers.get('x-forwarded-for') ?? '127.0.0.1';
+      const { success, limit, reset, remaining } = await ratelimit.limit(`ratelimit_${ip}`);
+      
+      if (!success) {
+        return NextResponse.json(
+          { error: 'Demasiadas peticiones detectadas. Por favor, espera un minuto por seguridad.' },
+          { status: 429, headers: { 'X-RateLimit-Limit': limit.toString(), 'X-RateLimit-Remaining': remaining.toString(), 'X-RateLimit-Reset': reset.toString() } }
+        );
+      }
+    }
+  }
 
   // Si no está autenticado y trata de acceder a rutas protegidas → redirigir al login
   if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
