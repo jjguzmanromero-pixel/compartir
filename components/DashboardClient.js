@@ -211,8 +211,8 @@ export default function DashboardClient({ user, isAdmin }) {
 
     // Fallback si la tabla es nueva (tiene 0) pero hay archivos existentes
     if (!isAdmin) {
-      if (userMetric > 0) {
-        setTotalUsedBytes(userMetric);
+      if (userMetric !== 0) {
+        setTotalUsedBytes(Math.max(0, userMetric));
       } else if (!currentPath) {
         setTotalUsedBytes(loadedFilesSize + loadedTrashSize);
       }
@@ -238,12 +238,8 @@ export default function DashboardClient({ user, isAdmin }) {
       // Nueva lógica Admin R2: Listar archivos recorriendo las carpetas de usuarios
       if (users) {
         const fetchPromises = users.map(async (u) => {
-          const r = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: u.id }) });
-          const json = await r.json();
-          if (json.data) {
-            return json.data.map(f => ({ ...f, ownerId: u.id, ownerEmail: u.email }));
-          }
-          return [];
+          const userFiles = await listAllFilesRecursive(u.id);
+          return userFiles.map(f => ({ ...f, ownerId: u.id, ownerEmail: u.email }));
         });
         const results = await Promise.all(fetchPromises);
         const flatFiles = results.flat();
@@ -261,6 +257,67 @@ export default function DashboardClient({ user, isAdmin }) {
   // Avisar al Agente Local y otros clientes Web que hubo un cambio
   function notifyWebChange() {
     supabase.channel('realtime-dashboard').send({ type: 'broadcast', event: 'web_change', payload: {} });
+  }
+
+  async function listAllFilesRecursive(basePath, currentRelativePath = '') {
+    let allFiles = [];
+    try {
+      const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: basePath }) });
+      const json = await res.json();
+      for (const f of json.data || []) {
+        if (f.name === '.emptyFolderPlaceholder') continue;
+        if (!f.metadata && f.name !== '.papelera') {
+          const newRelativePath = currentRelativePath ? `${currentRelativePath}/${f.name}` : f.name;
+          const subFiles = await listAllFilesRecursive(`${basePath}/${f.name}`, newRelativePath);
+          allFiles = allFiles.concat(subFiles);
+          allFiles.push({ ...f, name: newRelativePath }); // Agregamos la carpeta visualmente
+        } else if (f.metadata && f.name !== '.papelera') {
+          allFiles.push({ ...f, name: currentRelativePath ? `${currentRelativePath}/${f.name}` : f.name });
+        }
+      }
+    } catch (e) {}
+    return allFiles;
+  }
+
+  async function getFolderSizeRecursive(basePath) {
+    let totalBytes = 0;
+    try {
+      const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: basePath }) });
+      const json = await res.json();
+      for (const f of json.data || []) {
+        if (f.name === '.emptyFolderPlaceholder') continue;
+        if (!f.metadata && f.name !== '.papelera') {
+          totalBytes += await getFolderSizeRecursive(`${basePath}/${f.name}`);
+        } else if (f.metadata) {
+          totalBytes += (f.metadata.size || 0);
+        }
+      }
+    } catch (e) {}
+    return totalBytes;
+  }
+
+  async function recalculateQuotas() {
+    if (!confirm("¿Deseas escanear la nube y recalcular el espacio real de todos los usuarios? Esto corregirá las cuotas dañadas por errores anteriores.")) return;
+    
+    setLoading(true);
+    try {
+      let globalTotal = 0;
+      for (const u of allUsers) {
+        const userBytes = await getFolderSizeRecursive(u.id);
+        const trashBytes = await getFolderSizeRecursive(`${u.id}/.papelera`);
+        const totalUserBytes = userBytes + trashBytes;
+        
+        await supabase.from('storage_metrics').upsert({ user_id: u.id, total_bytes: totalUserBytes });
+        globalTotal += totalUserBytes;
+      }
+      
+      setTotalUsedBytes(globalTotal);
+      alert("✅ Cuotas recalculadas y corregidas exitosamente.");
+      await loadFiles();
+    } catch (e) {
+      alert("❌ Error al recalcular: " + e.message);
+    }
+    setLoading(false);
   }
 
   // Helper para generar las rutas dependiendo de si estás en una subcarpeta
@@ -1138,9 +1195,19 @@ export default function DashboardClient({ user, isAdmin }) {
         {/* ADMIN — USUARIOS */}
         {tab === 'usuarios' && isAdmin && (
           <div>
-            <div className="mb-6">
-              <h1 className="text-xl font-semibold text-[#1a1a1a]">Usuarios</h1>
-              <p className="text-sm text-[#888] mt-0.5">{allUsers.length} usuario{allUsers.length !== 1 ? 's' : ''} registrados</p>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-xl font-semibold text-[#1a1a1a]">Usuarios</h1>
+                <p className="text-sm text-[#888] mt-0.5">{allUsers.length} usuario{allUsers.length !== 1 ? 's' : ''} registrados</p>
+              </div>
+              <button
+                onClick={recalculateQuotas}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-[#e8e6e0] text-[#1a1a1a] rounded-xl text-sm font-medium hover:bg-[#f7f6f3] active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Recalcular Espacio
+              </button>
             </div>
             <div className="space-y-2">
               {allUsers.map(u => {
