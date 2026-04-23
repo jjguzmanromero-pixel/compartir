@@ -383,87 +383,90 @@ export default function DashboardClient({ user, isAdmin }) {
     setUploadingFiles(initialUploads);
     setUploading(true)
 
-    const uploadPromises = filesArray.map(async (file) => {
-      try {
-        // SEGURIDAD: Evitar subir archivos con el nombre reservado de la papelera
-        if (file.name === '.papelera') {
-          throw new Error('Nombre de archivo reservado');
-        }
-
-        const safeName = encodeSafe(file.name)
-        const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
-        const path = `${folderPath}/${safeName}`
-        const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
-
-        let cType = file.type || 'application/octet-stream';
-        if (!cType.includes('charset=')) cType += '; charset=utf-8';
-
-        // --- OBTENER TAMAÑO ANTERIOR ---
-        let oldSize = 0;
+    // Procesar las subidas en lotes para no saturar el Rate Limit ni la red del navegador
+    const CONCURRENCY = 5;
+    for (let i = 0; i < filesArray.length; i += CONCURRENCY) {
+      const chunk = filesArray.slice(i, i + CONCURRENCY);
+      await Promise.all(chunk.map(async (file) => {
         try {
-          const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: folderPath }) });
-          const listJson = await listRes.json();
-          const existingFile = listJson.data?.find(f => {
-            const cleanName = f.name.replace(/^\d+_/, '');
-            const decodedClean = decodeSafe(cleanName);
-            return f.name === safeName || cleanName === safeName || decodedClean === safeName || f.name === file.name;
-          });
-          if (existingFile && existingFile.metadata) oldSize = existingFile.metadata.size;
-        } catch(e) {}
-
-        if (file.size > CHUNK_SIZE) {
-          // --- LÓGICA MULTIPARTE ---
-          const createRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'createMultipartUpload', path, contentType: cType }) });
-          const { uploadId } = await createRes.json();
-          if (!uploadId) throw new Error('No se pudo iniciar la subida multiparte.');
-
-          const numParts = Math.ceil(file.size / CHUNK_SIZE);
-          const uploadedParts = [];
-
-          try {
-            for (let i = 0; i < numParts; i++) {
-              const partNumber = i + 1;
-              const start = i * CHUNK_SIZE;
-              const end = Math.min(start + CHUNK_SIZE, file.size);
-              const chunk = file.slice(start, end);
-
-              const partPresignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'uploadPart', path, uploadId, partNumber }) });
-              const { signedUrl: partSignedUrl } = await partPresignRes.json();
-              if (!partSignedUrl) throw new Error(`No se pudo obtener URL para el fragmento ${partNumber}`);
-
-              const uploadPartRes = await fetch(partSignedUrl, { method: 'PUT', body: chunk });
-              if (!uploadPartRes.ok) throw new Error(`Falló la subida del fragmento ${partNumber}`);
-              
-              const eTag = uploadPartRes.headers.get('etag')?.replace(/"/g, '');
-              uploadedParts.push({ PartNumber: partNumber, ETag: eTag });
-
-              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: end } : f));
-            }
-
-            await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'completeMultipartUpload', path, uploadId, parts: uploadedParts }) });
-            await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
-          } catch (err) {
-            await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'abortMultipartUpload', path, uploadId }) });
-            throw err;
+          // SEGURIDAD: Evitar subir archivos con el nombre reservado de la papelera
+          if (file.name === '.papelera') {
+            throw new Error('Nombre de archivo reservado');
           }
-        } else {
-          // --- LÓGICA DE SUBIDA SIMPLE ---
-          const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: cType }) });
-          const { signedUrl, error } = await presignRes.json();
-          if (error) throw new Error(error.message);
-          
-          const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': cType } });
-          if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
-
-          await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
-          setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: file.size } : f));
+  
+          const safeName = encodeSafe(file.name)
+          const folderPath = currentPath ? `${user.id}/${currentPath}` : user.id
+          const path = `${folderPath}/${safeName}`
+          const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+  
+          let cType = file.type || 'application/octet-stream';
+          if (!cType.includes('charset=')) cType += '; charset=utf-8';
+  
+          // --- OBTENER TAMAÑO ANTERIOR ---
+          let oldSize = 0;
+          try {
+            const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: folderPath }) });
+            const listJson = await listRes.json();
+            const existingFile = listJson.data?.find(f => {
+              const cleanName = f.name.replace(/^\d+_/, '');
+              const decodedClean = decodeSafe(cleanName);
+              return f.name === safeName || cleanName === safeName || decodedClean === safeName || f.name === file.name;
+            });
+            if (existingFile && existingFile.metadata) oldSize = existingFile.metadata.size;
+          } catch(e) {}
+  
+          if (file.size > CHUNK_SIZE) {
+            // --- LÓGICA MULTIPARTE ---
+            const createRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'createMultipartUpload', path, contentType: cType }) });
+            const { uploadId } = await createRes.json();
+            if (!uploadId) throw new Error('No se pudo iniciar la subida multiparte.');
+  
+            const numParts = Math.ceil(file.size / CHUNK_SIZE);
+            const uploadedParts = [];
+  
+            try {
+              for (let i = 0; i < numParts; i++) {
+                const partNumber = i + 1;
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+  
+                const partPresignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'uploadPart', path, uploadId, partNumber }) });
+                const { signedUrl: partSignedUrl } = await partPresignRes.json();
+                if (!partSignedUrl) throw new Error(`No se pudo obtener URL para el fragmento ${partNumber}`);
+  
+                const uploadPartRes = await fetch(partSignedUrl, { method: 'PUT', body: chunk });
+                if (!uploadPartRes.ok) throw new Error(`Falló la subida del fragmento ${partNumber}`);
+                
+                const eTag = uploadPartRes.headers.get('etag')?.replace(/"/g, '');
+                uploadedParts.push({ PartNumber: partNumber, ETag: eTag });
+  
+                setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: end } : f));
+              }
+  
+              await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'completeMultipartUpload', path, uploadId, parts: uploadedParts }) });
+              await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
+            } catch (err) {
+              await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'abortMultipartUpload', path, uploadId }) });
+              throw err;
+            }
+          } else {
+            // --- LÓGICA DE SUBIDA SIMPLE ---
+            const presignRes = await fetch('/api/storage/presign', { method: 'POST', body: JSON.stringify({ action: 'upload', path, contentType: cType }) });
+            const { signedUrl, error } = await presignRes.json();
+            if (error) throw new Error(error.message);
+            
+            const uploadRes = await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': cType } });
+            if (!uploadRes.ok) throw new Error(`Falló la conexión con Cloudflare R2`);
+  
+            await supabase.rpc('increment_storage', { user_id_param: user.id, bytes_to_add: file.size - oldSize });
+            setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: file.size } : f));
+          }
+        } catch (err) {
+          setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, error: err.message } : f));
         }
-      } catch (err) {
-        setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, error: err.message } : f));
-      }
-    });
-
-    await Promise.all(uploadPromises);
+      }));
+    }
 
     await loadFiles();
     notifyWebChange();
