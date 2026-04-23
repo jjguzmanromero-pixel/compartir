@@ -474,35 +474,87 @@ export default function DashboardClient({ user, isAdmin }) {
     }, 5000); // Mantener la caja de progreso visible por 5 segundos
   }
 
-  async function deleteFile(fileName, ownerId) {
+  async function deleteFile(fileName, ownerId, isFolder = false) {
+    if (isFolder) {
+      if (!confirm(`¿Estás seguro de que quieres enviar la carpeta "${decodeSafe(fileName)}" y todo su contenido a la papelera?`)) return;
+    }
     const fileKey = `${ownerId || user.id}/${fileName}`;
     setProcessingFiles(prev => new Set(prev).add(fileKey)); // Iniciar progreso
 
     try {
+      const basePath = `${ownerId || user.id}`;
       const path = getFilePath(fileName, ownerId)
-      const basePath = `${ownerId || user.id}`
-      const relativePath = path.substring(basePath.length + 1) // Obtener ruta sin el ID del usuario
-      const trashName = relativePath.replace(/\//g, '___') // Codificar carpetas con ___
-      const trashPath = `${basePath}/.papelera/${trashName}`
 
       // Obtener el tamaño ANTES de enviarlo a la papelera para restar la cuota
       let freedBytes = 0;
-      try {
-        const dirPath = ownerId ? ownerId : (currentPath ? `${user.id}/${currentPath}` : user.id);
-        const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: dirPath }) });
-        const listJson = await listRes.json();
-        const fileObj = listJson.data?.find(f => f.name === fileName);
-        if (fileObj && fileObj.metadata) freedBytes = fileObj.metadata.size;
-      } catch(e) {}
       
-      // Optimización: Soft Delete (Mover a Papelera)
-      const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'move', path, targetPath: trashPath }) });
-      const data = await res.json();
-      
-      if (data.error) {
-        console.error("Error al mover a papelera:", data.error);
-        // Fallback a borrado definitivo
-        await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [path] }) });
+      if (isFolder) {
+        // 1. Obtener todos los archivos de la carpeta recursivamente
+        async function getRawFilesRecursive(dir) {
+          let results = [];
+          try {
+            const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: dir }) });
+            const json = await res.json();
+            for (const f of json.data || []) {
+              const fullPath = `${dir}/${f.name}`;
+              results.push({ ...f, fullPath });
+              if (!f.metadata && f.name !== '.papelera') {
+                results = results.concat(await getRawFilesRecursive(fullPath));
+              }
+            }
+          } catch (e) {}
+          return results;
+        }
+
+        const rawFiles = await getRawFilesRecursive(path);
+        const failedPaths = [];
+
+        // Procesar las llamadas a la API en lotes de 5 para no saturar la red del navegador
+        const chunkSize = 5;
+        for (let i = 0; i < rawFiles.length; i += chunkSize) {
+          const chunk = rawFiles.slice(i, i + chunkSize);
+          const movePromises = chunk.map(f => {
+            const relativeToUser = f.fullPath.substring(basePath.length + 1);
+            const trashName = relativeToUser.replace(/\//g, '___');
+            const trashPath = `${basePath}/.papelera/${trashName}`;
+  
+            if (f.metadata && !f.name.endsWith('.emptyFolderPlaceholder')) {
+              freedBytes += (f.metadata.size || 0);
+            }
+  
+            return fetch('/api/storage/manage', { 
+              method: 'POST', 
+              body: JSON.stringify({ action: 'move', path: f.fullPath, targetPath: trashPath }) 
+            }).then(res => res.json()).then(data => {
+              if (data.error) failedPaths.push(f.fullPath);
+            }).catch(() => failedPaths.push(f.fullPath));
+          });
+          await Promise.all(movePromises);
+        }
+
+        if (failedPaths.length > 0) {
+          await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: failedPaths }) });
+        }
+      } else {
+        const relativePath = path.substring(basePath.length + 1) // Obtener ruta sin el ID del usuario
+        const trashName = relativePath.replace(/\//g, '___') // Codificar carpetas con ___
+        const trashPath = `${basePath}/.papelera/${trashName}`
+
+        try {
+          const dirPath = ownerId ? ownerId : (currentPath ? `${user.id}/${currentPath}` : user.id);
+          const listRes = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'list', path: dirPath }) });
+          const listJson = await listRes.json();
+          const fileObj = listJson.data?.find(f => f.name === fileName);
+          if (fileObj && fileObj.metadata) freedBytes = fileObj.metadata.size;
+        } catch(e) {}
+        
+        const res = await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'move', path, targetPath: trashPath }) });
+        const data = await res.json();
+        
+        if (data.error) {
+          console.error("Error al mover a papelera:", data.error);
+          await fetch('/api/storage/manage', { method: 'POST', body: JSON.stringify({ action: 'delete', paths: [path] }) });
+        }
       }
   
       if (freedBytes > 0) {
@@ -1026,7 +1078,7 @@ export default function DashboardClient({ user, isAdmin }) {
                                 </button>
                               </>
                             )}
-                            <button onClick={() => deleteFile(file.name, null, isFolder)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
+                            <button onClick={() => isFolder ? alert('Para eliminar la carpeta, primero entra en ella y elimina sus archivos.') : deleteFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                             </button>
                           </>
@@ -1048,7 +1100,7 @@ export default function DashboardClient({ user, isAdmin }) {
                 <h1 className="text-xl font-semibold text-[#1a1a1a]">Papelera de reciclaje</h1>
                 <p className="text-sm text-[#888] mt-0.5">Tus archivos eliminados recientemente</p>
               </div>
-              {trashFiles.filter(f => !f.name.endsWith('.emptyFolderPlaceholder')).length > 0 && (
+              {trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder').length > 0 && (
                 <button
                   onClick={emptyTrash}
                   disabled={loading}
@@ -1063,7 +1115,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
             ) : (
               <VirtualFileList
-                items={sortFilesList(trashFiles.filter(f => !f.name.endsWith('.emptyFolderPlaceholder')))}
+                items={sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder'))}
                 viewMode="list"
                 renderItem={(file) => {
                   const fileKey = `${user.id}/${file.name}`;
@@ -1183,7 +1235,7 @@ export default function DashboardClient({ user, isAdmin }) {
                                 </button>
                               </>
                             )}
-                            <button onClick={() => deleteFile(file.name, file.ownerId, isFolder)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
+                            <button onClick={() => isFolder ? alert('Las carpetas no se pueden borrar directamente desde el panel de administrador por seguridad.') : deleteFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                             </button>
                           </>
