@@ -20,6 +20,8 @@
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.43.0",
     "@tanstack/react-virtual": "^3.13.24",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.37.0",
     "better-sqlite3": "^12.9.0",
     "chokidar": "^5.0.0",
     "clsx": "^2.1.1",
