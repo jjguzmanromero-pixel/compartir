@@ -27,7 +27,7 @@ export async function POST(req) {
     
     const { data: profile } = await supabaseQuery.from('profiles').select('role').eq('id', user.id).single();
     const isAdmin = profile?.role === 'admin';
-    const isAllowed = (p) => p.startsWith(`${user.id}/`) || isAdmin;
+    const isAllowed = (p) => p === String(user.id) || p.startsWith(`${user.id}/`) || isAdmin;
     
     if (path && !isAllowed(path)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
 
