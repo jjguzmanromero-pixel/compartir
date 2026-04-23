@@ -307,13 +307,26 @@ export default function DashboardClient({ user, isAdmin }) {
         const trashBytes = await getFolderSizeRecursive(`${u.id}/.papelera`);
         const totalUserBytes = userBytes + trashBytes;
         
-        await supabase.from('storage_metrics').upsert({ user_id: u.id, total_bytes: totalUserBytes });
+        // Guardado seguro: Evita fallos silenciosos de 'upsert' verificando si existe primero
+        const { data: existing } = await supabase.from('storage_metrics').select('user_id').eq('user_id', u.id).maybeSingle();
+        
+        let saveError;
+        if (existing) {
+          const { error } = await supabase.from('storage_metrics').update({ total_bytes: totalUserBytes }).eq('user_id', u.id);
+          saveError = error;
+        } else {
+          const { error } = await supabase.from('storage_metrics').insert({ user_id: u.id, total_bytes: totalUserBytes });
+          saveError = error;
+        }
+        if (saveError) throw new Error(`Fallo al guardar métricas de ${u.email}: ${saveError.message}`);
+
         globalTotal += totalUserBytes;
       }
       
       setTotalUsedBytes(globalTotal);
       alert("✅ Cuotas recalculadas y corregidas exitosamente.");
       await loadFiles();
+      notifyWebChange();
     } catch (e) {
       alert("❌ Error al recalcular: " + e.message);
     }
