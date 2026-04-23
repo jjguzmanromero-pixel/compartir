@@ -133,9 +133,10 @@ export default function DashboardClient({ user, isAdmin }) {
     const tabParam = urlParams.get('tab');
     if (tabParam) setTab(tabParam);
 
+    // 🚀 Siempre avisar al Agente Local que hay una sesión activa (modo latente -> activo silenciosamente)
+    setTimeout(() => linkPC(true), 1500);
+
     if (urlParams.get('autoConnect') === 'true') {
-      // Dar tiempo a cargar la sesión web por si acabas de iniciar sesión
-      setTimeout(() => linkPC(true), 1500);
       // Limpiar la URL para evitar reconexiones accidentales al recargar la página
       window.history.replaceState({}, document.title, window.location.pathname);
     }
