@@ -1026,7 +1026,7 @@ export default function DashboardClient({ user, isAdmin }) {
                                 </button>
                               </>
                             )}
-                            <button onClick={() => isFolder ? alert('Para eliminar la carpeta, primero entra en ella y elimina sus archivos.') : deleteFile(file.name, null)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
+                            <button onClick={() => deleteFile(file.name, null, isFolder)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                             </button>
                           </>
@@ -1048,7 +1048,7 @@ export default function DashboardClient({ user, isAdmin }) {
                 <h1 className="text-xl font-semibold text-[#1a1a1a]">Papelera de reciclaje</h1>
                 <p className="text-sm text-[#888] mt-0.5">Tus archivos eliminados recientemente</p>
               </div>
-              {trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder').length > 0 && (
+              {trashFiles.filter(f => !f.name.endsWith('.emptyFolderPlaceholder')).length > 0 && (
                 <button
                   onClick={emptyTrash}
                   disabled={loading}
@@ -1063,7 +1063,7 @@ export default function DashboardClient({ user, isAdmin }) {
               <div className="text-center py-16 text-[#aaa] text-sm">La papelera está vacía</div>
             ) : (
               <VirtualFileList
-                items={sortFilesList(trashFiles.filter(f => f.name !== '.emptyFolderPlaceholder'))}
+                items={sortFilesList(trashFiles.filter(f => !f.name.endsWith('.emptyFolderPlaceholder')))}
                 viewMode="list"
                 renderItem={(file) => {
                   const fileKey = `${user.id}/${file.name}`;
@@ -1183,7 +1183,7 @@ export default function DashboardClient({ user, isAdmin }) {
                                 </button>
                               </>
                             )}
-                            <button onClick={() => isFolder ? alert('Las carpetas no se pueden borrar directamente desde el panel de administrador por seguridad.') : deleteFile(file.name, file.ownerId)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors">
+                            <button onClick={() => deleteFile(file.name, file.ownerId, isFolder)} className="p-1.5 rounded-lg hover:bg-red-50 text-[#bbb] hover:text-red-500 transition-colors" title="Eliminar">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                             </button>
                           </>
