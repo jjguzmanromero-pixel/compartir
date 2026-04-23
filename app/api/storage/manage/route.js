@@ -11,10 +11,9 @@ export async function POST(req) {
     const authHeader = req.headers.get('authorization');
     
     if (authHeader) {
-      supabaseQuery = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } }
-      });
-      const { data } = await supabaseQuery.auth.getUser();
+      const token = authHeader.replace('Bearer ', '');
+      supabaseQuery = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+      const { data } = await supabaseQuery.auth.getUser(token);
       user = data?.user;
     } else {
       supabaseQuery = await createServerSupabaseClient();
